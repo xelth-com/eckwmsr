@@ -1,10 +1,14 @@
+use chrono::Utc;
 use sea_orm::entity::prelude::*;
 use sea_orm::{sea_query::OnConflict, IntoActiveModel};
+use serde::Serialize;
 use tracing::{error, info, warn};
 
+use crate::models::sync_packet::EntityMetadata;
 use crate::models::{location, product};
 use crate::sync::relay_client::RelayClient;
 use crate::sync::security::SecurityLayer;
+use crate::sync::vector_clock::VectorClock;
 
 pub struct SyncEngine {
     db: DatabaseConnection,
@@ -114,6 +118,52 @@ impl SyncEngine {
             .await
             .map_err(|e| format!("upsert: {}", e))?;
 
+        Ok(())
+    }
+
+    /// Pushes a local entity to the blind relay for a specific target instance.
+    pub async fn push_entity<T: Serialize>(
+        &self,
+        target_instance: &str,
+        entity_type: &str,
+        entity_id: &str,
+        payload: &T,
+    ) -> Result<(), String> {
+        let mut vc = VectorClock::new();
+        vc.increment(&self.instance_id);
+
+        let metadata = EntityMetadata {
+            entity_id: entity_id.to_string(),
+            entity_type: entity_type.to_string(),
+            version: 1,
+            updated_at: Utc::now(),
+            source: "local_server".to_string(),
+            source_priority: 80,
+            instance_id: self.instance_id.clone(),
+            device_id: None,
+            vector_clock: vc,
+        };
+
+        let encrypted_packet = self
+            .security
+            .encrypt_packet(&metadata, payload)
+            .map_err(|e| {
+                error!("Encryption failed: {}", e);
+                e.to_string()
+            })?;
+
+        self.relay
+            .push_packet(target_instance, &encrypted_packet, Some(86400))
+            .await
+            .map_err(|e| {
+                error!("Push to relay failed: {}", e);
+                e.to_string()
+            })?;
+
+        info!(
+            "SyncEngine: Pushed {} [{}] to relay for target '{}'",
+            entity_type, entity_id, target_instance
+        );
         Ok(())
     }
 

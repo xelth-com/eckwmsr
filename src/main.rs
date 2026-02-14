@@ -69,6 +69,7 @@ async fn main() {
         .route("/items", get(handlers::warehouse::list_items))
         .route("/scan", post(handlers::scan::handle_scan))
         .route("/sync/trigger", post(handlers::sync::trigger_sync))
+        .route("/sync/push_test", post(handlers::sync::trigger_push))
         .layer(from_fn_with_state(
             app_state.clone(),
             middleware::auth::auth_middleware,
