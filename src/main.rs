@@ -3,6 +3,7 @@ mod db;
 mod handlers;
 mod middleware;
 mod models;
+mod sync;
 mod utils;
 mod web;
 
@@ -57,16 +58,13 @@ async fn main() {
             middleware::auth::auth_middleware,
         ));
 
-    // Build the main router
+    // Build the main router — strict /E prefix for microservice deployment
     let app = Router::new()
         // Health check (public)
-        .route("/health", get(health_check))
         .route("/E/health", get(health_check))
         // Auth routes (public)
-        .route("/auth/login", post(handlers::auth::login))
         .route("/E/auth/login", post(handlers::auth::login))
-        // Protected API routes (mapped to both root and /E prefix)
-        .nest("/api", api_routes.clone())
+        // Protected API routes
         .nest("/E/api", api_routes)
         // Fallback for static files (SPA frontend)
         .fallback(web::static_handler)

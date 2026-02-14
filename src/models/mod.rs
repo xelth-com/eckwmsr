@@ -4,3 +4,4 @@ pub mod product;
 pub mod location;
 pub mod quant;
 pub mod checksum;
+pub mod sync_packet;
