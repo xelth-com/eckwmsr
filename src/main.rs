@@ -70,6 +70,12 @@ async fn main() {
         .route("/scan", post(handlers::scan::handle_scan))
         .route("/sync/trigger", post(handlers::sync::trigger_sync))
         .route("/sync/push_test", post(handlers::sync::trigger_push))
+        // Pickings API
+        .route("/pickings/active", get(handlers::picking::list_active_pickings))
+        .route("/pickings/:id/lines", get(handlers::picking::get_picking_lines))
+        .route("/pickings/:id/lines/:line_id/confirm", post(handlers::picking::confirm_pick_line))
+        .route("/pickings/:id/validate", post(handlers::picking::validate_picking))
+        .route("/pickings/:id/route", get(handlers::picking::get_picking_route))
         .layer(from_fn_with_state(
             app_state.clone(),
             middleware::auth::auth_middleware,
