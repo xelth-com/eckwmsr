@@ -1,0 +1,6 @@
+target/
+.env
+*.pdb
+
+# Added by eck-snapshot to ignore metadata directory
+.eck/
