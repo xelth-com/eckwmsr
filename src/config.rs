@@ -22,7 +22,7 @@ pub fn load_config() -> Config {
         .unwrap_or_else(|_| "rust_dev_node".to_string());
 
     let database_url = env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5433/eckwmsgo_local".to_string());
+        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/eckwms".to_string());
 
     let jwt_secret = env::var("JWT_SECRET")
         .unwrap_or_else(|_| "dev_secret_change_me".to_string());
