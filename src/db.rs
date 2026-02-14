@@ -1,10 +1,14 @@
-use sea_orm::{Database, DatabaseConnection};
+use sea_orm::Database;
+pub use sea_orm::DatabaseConnection;
 use std::time::Duration;
+
 use crate::config::Config;
+use crate::sync::engine::SyncEngine;
 
 pub struct AppState {
     pub db: DatabaseConnection,
     pub config: Config,
+    pub sync_engine: SyncEngine,
 }
 
 pub async fn connect(database_url: &str) -> Result<DatabaseConnection, sea_orm::DbErr> {

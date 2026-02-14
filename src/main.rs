@@ -17,6 +17,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::{error, info};
 
+use crate::sync::engine::SyncEngine;
+use crate::sync::relay_client::RelayClient;
+use crate::sync::security::{SecurityLayer, SyncNodeRole};
+
 #[derive(Serialize)]
 struct HealthResponse {
     status: String,
@@ -43,9 +47,20 @@ async fn main() {
         }
     };
 
+    // Initialize Sync Engine
+    let security_layer = SecurityLayer::new(SyncNodeRole::Peer, &cfg.sync_network_key);
+    let relay_client = RelayClient::new(&cfg.sync_relay_url, &cfg.instance_id);
+    let sync_engine = SyncEngine::new(
+        db_conn.clone(),
+        security_layer,
+        relay_client,
+        cfg.instance_id.clone(),
+    );
+
     let app_state = Arc::new(db::AppState {
         db: db_conn,
         config: cfg.clone(),
+        sync_engine,
     });
 
     // Protected API routes (require JWT)
@@ -53,6 +68,7 @@ async fn main() {
         .route("/warehouse", get(handlers::warehouse::list_warehouses))
         .route("/items", get(handlers::warehouse::list_items))
         .route("/scan", post(handlers::scan::handle_scan))
+        .route("/sync/trigger", post(handlers::sync::trigger_sync))
         .layer(from_fn_with_state(
             app_state.clone(),
             middleware::auth::auth_middleware,
