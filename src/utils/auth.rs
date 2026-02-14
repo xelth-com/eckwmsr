@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use chrono::{Utc, Duration};
 use crate::models::user;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
     pub id: String,
     pub email: String,

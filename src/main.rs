@@ -1,15 +1,20 @@
 mod config;
 mod db;
 mod handlers;
+mod middleware;
 mod models;
 mod utils;
 mod web;
 
-use axum::{routing::{get, post}, Router, Json};
+use axum::{
+    middleware::from_fn_with_state,
+    routing::{get, post},
+    Json, Router,
+};
 use serde::Serialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing::{info, error};
+use tracing::{error, info};
 
 #[derive(Serialize)]
 struct HealthResponse {
@@ -20,15 +25,12 @@ struct HealthResponse {
 
 #[tokio::main]
 async fn main() {
-    // Initialize tracing
     tracing_subscriber::fmt::init();
 
-    // Load configuration
     let cfg = config::load_config();
     info!("Starting eckWMS Rust Edition (eckwmsr)");
     info!("Instance ID: {}", cfg.instance_id);
 
-    // Initialize Database
     let db_conn = match db::connect(&cfg.database_url).await {
         Ok(conn) => {
             info!("Database connection established");
@@ -45,17 +47,31 @@ async fn main() {
         config: cfg.clone(),
     });
 
-    // Build the router
+    // Protected API routes (require JWT)
+    let api_routes = Router::new()
+        .route("/warehouse", get(handlers::warehouse::list_warehouses))
+        .route("/items", get(handlers::warehouse::list_items))
+        .route("/scan", post(handlers::scan::handle_scan))
+        .layer(from_fn_with_state(
+            app_state.clone(),
+            middleware::auth::auth_middleware,
+        ));
+
+    // Build the main router
     let app = Router::new()
+        // Health check (public)
         .route("/health", get(health_check))
-        // Auth routes (support both root and /E subdirectory)
+        .route("/E/health", get(health_check))
+        // Auth routes (public)
         .route("/auth/login", post(handlers::auth::login))
         .route("/E/auth/login", post(handlers::auth::login))
+        // Protected API routes (mapped to both root and /E prefix)
+        .nest("/api", api_routes.clone())
+        .nest("/E/api", api_routes)
         // Fallback for static files (SPA frontend)
         .fallback(web::static_handler)
         .with_state(app_state);
 
-    // Run the server
     let addr = SocketAddr::from(([0, 0, 0, 0], cfg.port));
     info!("Server listening on {}", addr);
 
