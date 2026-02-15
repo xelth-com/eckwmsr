@@ -31,7 +31,7 @@ pub struct Model {
     pub last_login: Option<DateTimeUtc>,
     #[sea_orm(column_name = "failed_login_attempts")]
     #[serde(skip_serializing)]
-    pub failed_login_attempts: i32,
+    pub failed_login_attempts: i64,
     #[sea_orm(column_name = "preferred_language")]
     #[serde(rename = "preferredLanguage")]
     pub preferred_language: String,
