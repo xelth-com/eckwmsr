@@ -181,12 +181,19 @@ async fn main() {
             middleware::auth::auth_middleware,
         ));
 
+    // Mesh routes (public — uses mesh tokens, not JWT)
+    let mesh_routes = Router::new()
+        .route("/nodes", get(handlers::mesh::list_nodes))
+        .route("/status", get(handlers::mesh::get_status));
+
     // Build the main router — strict /E prefix for microservice deployment
     let app = Router::new()
         // Health check (public)
         .route("/E/health", get(health_check))
         // Auth routes (public)
         .route("/E/auth/login", post(handlers::auth::login))
+        // Mesh routes (public)
+        .nest("/E/mesh", mesh_routes)
         // API routes
         .nest("/E/api", api_routes)
         // RMA routes (root level, matching Go router)
