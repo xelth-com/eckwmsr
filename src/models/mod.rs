@@ -9,3 +9,5 @@ pub mod picking;
 pub mod move_line;
 pub mod rack;
 pub mod partner;
+pub mod file_resource;
+pub mod product_alias;

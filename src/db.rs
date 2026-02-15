@@ -2,6 +2,7 @@ use sea_orm::Database;
 pub use sea_orm::DatabaseConnection;
 use std::time::Duration;
 
+use crate::ai::client::GeminiClient;
 use crate::config::Config;
 use crate::sync::engine::SyncEngine;
 
@@ -9,6 +10,7 @@ pub struct AppState {
     pub db: DatabaseConnection,
     pub config: Config,
     pub sync_engine: SyncEngine,
+    pub ai_client: Option<GeminiClient>,
 }
 
 pub async fn connect(database_url: &str) -> Result<DatabaseConnection, sea_orm::DbErr> {

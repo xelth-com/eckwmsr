@@ -2,11 +2,12 @@ use axum::{extract::State, Json};
 use sea_orm::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::{
+    ai::prompts::AGENT_SYSTEM_PROMPT,
     db::AppState,
-    models::location,
+    models::{location, product, product_alias},
     utils::smart_code::{decode_smart_box, decode_smart_item, decode_smart_label, decode_smart_place},
 };
 
@@ -26,12 +27,14 @@ pub struct ScanResponse {
     pub action: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
+    #[serde(rename = "ai_interaction", skip_serializing_if = "Option::is_none")]
+    pub ai_interaction: Option<serde_json::Value>,
     #[serde(rename = "msgId", skip_serializing_if = "Option::is_none")]
     pub msg_id: Option<String>,
 }
 
 /// POST /api/scan — universal barcode scanner endpoint.
-/// Decodes Smart Codes (i/b/p/l) and performs DB lookups.
+/// Decodes Smart Codes (i/b/p/l), performs DB lookups, falls back to AI.
 /// Mirrors Go's `handleScan` from `internal/handlers/scan.go`.
 pub async fn handle_scan(
     State(state): State<Arc<AppState>>,
@@ -45,6 +48,7 @@ pub async fn handle_scan(
             message: "Empty barcode".into(),
             action: "error".into(),
             data: None,
+            ai_interaction: None,
             msg_id: payload.msg_id,
         });
     }
@@ -57,16 +61,16 @@ pub async fn handle_scan(
         message: "Unknown or legacy barcode".into(),
         action: "error".into(),
         data: None,
+        ai_interaction: None,
         msg_id: payload.msg_id.clone(),
     };
 
     match prefix {
         'p' | 'P' => {
             if let Ok(data) = decode_smart_place(&barcode.to_lowercase()) {
-                if let Ok(Some(loc)) =
-                    location::Entity::find_by_id(data.location_id)
-                        .one(&state.db)
-                        .await
+                if let Ok(Some(loc)) = location::Entity::find_by_id(data.location_id)
+                    .one(&state.db)
+                    .await
                 {
                     resp.r#type = "place".into();
                     resp.action = "found".into();
@@ -118,8 +122,65 @@ pub async fn handle_scan(
             }
         }
         _ => {
-            // Legacy barcode fallback — search product by EAN/barcode
-            resp.message = "Legacy barcode format".into();
+            // 1. Check memory (product_alias)
+            if let Ok(Some(alias)) = product_alias::Entity::find()
+                .filter(product_alias::Column::ExternalCode.eq(&barcode))
+                .one(&state.db)
+                .await
+            {
+                resp.r#type = "alias".into();
+                resp.action = "found".into();
+                resp.message = format!("Alias for {}", alias.internal_id);
+                resp.data = Some(serde_json::to_value(&alias).unwrap_or_default());
+                return Json(resp);
+            }
+
+            // 2. Legacy DB lookup (product by barcode or default_code)
+            if let Ok(Some(prod)) = product::Entity::find()
+                .filter(
+                    Condition::any()
+                        .add(product::Column::Barcode.eq(&barcode))
+                        .add(product::Column::DefaultCode.eq(&barcode)),
+                )
+                .one(&state.db)
+                .await
+            {
+                resp.r#type = "product".into();
+                resp.action = "found".into();
+                resp.message = prod.name.clone();
+                resp.data = Some(serde_json::to_value(&prod).unwrap_or_default());
+                return Json(resp);
+            }
+
+            // 3. Fallback to AI for truly unknown barcodes
+            if let Some(ai) = &state.ai_client {
+                let full_prompt = format!(
+                    "Worker scanned unknown code: '{}'. Analyze it.",
+                    barcode
+                );
+
+                match ai.generate_content(AGENT_SYSTEM_PROMPT, &full_prompt).await {
+                    Ok(ai_response_str) => {
+                        let clean_json = crate::utils::json::sanitize_json(&ai_response_str);
+                        if let Ok(interaction) =
+                            serde_json::from_str::<serde_json::Value>(&clean_json)
+                        {
+                            resp.r#type = "ai_analysis".into();
+                            resp.action = "interaction".into();
+                            resp.message = "AI Analysis".into();
+                            resp.ai_interaction = Some(interaction);
+                            return Json(resp);
+                        } else {
+                            error!("AI JSON Parse Error: {}", clean_json);
+                        }
+                    }
+                    Err(e) => {
+                        error!("AI Gen Error: {}", e);
+                    }
+                }
+            }
+
+            resp.message = "Legacy barcode not found".into();
         }
     }
 

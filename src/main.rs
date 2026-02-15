@@ -58,10 +58,29 @@ async fn main() {
         cfg.instance_id.clone(),
     );
 
+    // Initialize AI Client (optional — runs without it if no API key)
+    let ai_client = if !cfg.gemini_api_key.is_empty() {
+        match ai::client::GeminiClient::new(
+            &cfg.gemini_api_key,
+            &cfg.gemini_primary_model,
+            &cfg.gemini_fallback_model,
+        ) {
+            Ok(client) => Some(client),
+            Err(e) => {
+                error!("AI client initialization failed: {}", e);
+                None
+            }
+        }
+    } else {
+        info!("AI: No GEMINI_API_KEY set, AI module disabled");
+        None
+    };
+
     let app_state = Arc::new(db::AppState {
         db: db_conn,
         config: cfg.clone(),
         sync_engine,
+        ai_client,
     });
 
     // Protected API routes (require JWT)
@@ -77,6 +96,9 @@ async fn main() {
         .route("/pickings/:id/lines/:line_id/confirm", post(handlers::picking::confirm_pick_line))
         .route("/pickings/:id/validate", post(handlers::picking::validate_picking))
         .route("/pickings/:id/route", get(handlers::picking::get_picking_route))
+        // AI API
+        .route("/ai/analyze-image", post(handlers::ai::analyze_image))
+        .route("/ai/respond", post(handlers::ai::handle_ai_respond))
         .layer(from_fn_with_state(
             app_state.clone(),
             middleware::auth::auth_middleware,
