@@ -17,6 +17,7 @@ pub struct Model {
     #[serde(rename = "packageId")]
     pub package_id: Option<i64>,
     pub quantity: f64,
+    #[sea_orm(column_name = "reserved_qty")]
     pub reserved_quantity: f64,
 }
 
