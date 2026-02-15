@@ -12,3 +12,7 @@ pub mod partner;
 pub mod file_resource;
 pub mod product_alias;
 pub mod attachment;
+pub mod delivery_carrier;
+pub mod stock_picking_delivery;
+pub mod delivery_tracking;
+pub mod sync_history;
