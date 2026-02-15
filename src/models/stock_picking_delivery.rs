@@ -18,6 +18,8 @@ pub struct Model {
     #[sea_orm(column_type = "Text")]
     pub error_message: String,
     pub label_url: String,
+    #[serde(skip_serializing)]
+    pub label_data: Option<Vec<u8>>,
     pub raw_response: String,
     pub shipped_at: Option<DateTimeUtc>,
     pub delivered_at: Option<DateTimeUtc>,

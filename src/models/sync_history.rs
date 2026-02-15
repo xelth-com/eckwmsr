@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "sync_history")]
 pub struct Model {
-    #[sea_orm(primary_key, auto_increment = false, column_type = "Uuid")]
-    pub id: Uuid,
+    #[sea_orm(primary_key, auto_increment = false)]
+    pub id: String,
     pub instance_id: String,
     #[sea_orm(index)]
     pub provider: String,
@@ -14,15 +14,15 @@ pub struct Model {
     pub started_at: DateTimeUtc,
     pub completed_at: Option<DateTimeUtc>,
     #[sea_orm(default_value = "0")]
-    pub duration: i32,
+    pub duration: i64,
     #[sea_orm(default_value = "0")]
-    pub created: i32,
+    pub created: i64,
     #[sea_orm(default_value = "0")]
-    pub updated: i32,
+    pub updated: i64,
     #[sea_orm(default_value = "0")]
-    pub skipped: i32,
+    pub skipped: i64,
     #[sea_orm(default_value = "0")]
-    pub errors: i32,
+    pub errors: i64,
     #[sea_orm(column_type = "Text")]
     pub error_detail: String,
     #[sea_orm(column_type = "JsonBinary", nullable)]
