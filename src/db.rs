@@ -1,4 +1,4 @@
-use sea_orm::Database;
+use sea_orm::{Database, EntityTrait, PaginatorTrait};
 pub use sea_orm::DatabaseConnection;
 use std::time::Duration;
 
@@ -13,6 +13,8 @@ pub struct AppState {
     pub sync_engine: SyncEngine,
     pub ai_client: Option<GeminiClient>,
     pub file_store: FileStoreService,
+    /// Temporary setup password shown on login page when no users exist
+    pub setup_password: Option<String>,
 }
 
 pub async fn connect(database_url: &str) -> Result<DatabaseConnection, sea_orm::DbErr> {
@@ -24,4 +26,53 @@ pub async fn connect(database_url: &str) -> Result<DatabaseConnection, sea_orm::
         .max_lifetime(Duration::from_secs(8));
 
     Database::connect(opt).await
+}
+
+use crate::models::user;
+
+/// If no users exist, create a temporary setup account and return its password.
+/// The password is random and shown on the login page so the admin can get in.
+pub async fn seed_setup_account(db: &DatabaseConnection) -> Option<String> {
+    let count = user::Entity::find().count(db).await.unwrap_or(1);
+    if count > 0 {
+        return None;
+    }
+
+    // Generate random 12-char password
+    use rand::Rng;
+    let password: String = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(12)
+        .map(char::from)
+        .collect();
+
+    let hash = bcrypt::hash(&password, 10).ok()?;
+
+    use sea_orm::{ActiveModelTrait, Set};
+    let new_user = user::ActiveModel {
+        id: Set(uuid::Uuid::new_v4()),
+        username: Set("setup-admin".into()),
+        password: Set(hash),
+        email: Set("admin@setup.local".into()),
+        name: Set(Some("Setup Admin".into())),
+        role: Set("admin".into()),
+        user_type: Set("individual".into()),
+        company: Set(None),
+        google_id: Set(None),
+        pin: Set(String::new()),
+        is_active: Set(true),
+        last_login: Set(None),
+        failed_login_attempts: Set(0),
+        preferred_language: Set("en".into()),
+        created_at: Set(chrono::Utc::now().into()),
+        updated_at: Set(chrono::Utc::now().into()),
+        deleted_at: Set(None),
+    };
+
+    if new_user.insert(db).await.is_ok() {
+        tracing::info!("Created temporary setup account: admin@setup.local");
+        Some(password)
+    } else {
+        None
+    }
 }

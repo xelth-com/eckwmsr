@@ -113,12 +113,24 @@ async fn main() {
     // Drop delivery_service for now — it will be stored in AppState in Phase 8.3
     let _ = delivery_service;
 
+    // Seed setup account if no users exist
+    let setup_password = db::seed_setup_account(&db_conn).await;
+    if let Some(ref pw) = setup_password {
+        info!("=================================================");
+        info!("  FIRST RUN: Setup account created");
+        info!("  Email: admin@setup.local");
+        info!("  Password: {}", pw);
+        info!("  Create your own account, then this one will be removed.");
+        info!("=================================================");
+    }
+
     let app_state = Arc::new(db::AppState {
         db: db_conn,
         config: cfg.clone(),
         sync_engine,
         ai_client,
         file_store,
+        setup_password,
     });
 
     // Public API routes (no JWT — CAS files served via unguessable UUIDs)
@@ -193,6 +205,7 @@ async fn main() {
         .route("/E/health", get(health_check))
         // Auth routes (public)
         .route("/E/auth/login", post(handlers::auth::login))
+        .route("/E/auth/setup-status", get(handlers::auth::setup_status))
         // Mesh routes (public)
         .nest("/E/mesh", mesh_routes)
         // API routes

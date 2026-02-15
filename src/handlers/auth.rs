@@ -33,6 +33,22 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+/// GET /auth/setup-status — returns setup credentials if this is a fresh install
+pub async fn setup_status(
+    State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
+    match &state.setup_password {
+        Some(pw) => Json(serde_json::json!({
+            "needsSetup": true,
+            "email": "admin@setup.local",
+            "password": pw
+        })),
+        None => Json(serde_json::json!({
+            "needsSetup": false
+        })),
+    }
+}
+
 pub async fn login(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<LoginRequest>,
