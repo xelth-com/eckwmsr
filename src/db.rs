@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use crate::ai::client::GeminiClient;
 use crate::config::Config;
+use crate::services::filestore::FileStoreService;
 use crate::sync::engine::SyncEngine;
 
 pub struct AppState {
@@ -11,6 +12,7 @@ pub struct AppState {
     pub config: Config,
     pub sync_engine: SyncEngine,
     pub ai_client: Option<GeminiClient>,
+    pub file_store: FileStoreService,
 }
 
 pub async fn connect(database_url: &str) -> Result<DatabaseConnection, sea_orm::DbErr> {

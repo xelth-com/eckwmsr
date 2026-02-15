@@ -4,6 +4,7 @@ mod db;
 mod handlers;
 mod middleware;
 mod models;
+mod services;
 mod sync;
 mod utils;
 mod web;
@@ -76,15 +77,23 @@ async fn main() {
         None
     };
 
+    // Initialize File Store (CAS)
+    let file_store = services::filestore::FileStoreService::new(".");
+
     let app_state = Arc::new(db::AppState {
         db: db_conn,
         config: cfg.clone(),
         sync_engine,
         ai_client,
+        file_store,
     });
 
+    // Public API routes (no JWT — CAS files served via unguessable UUIDs)
+    let public_api_routes = Router::new()
+        .route("/files/:id", get(handlers::file::serve_file));
+
     // Protected API routes (require JWT)
-    let api_routes = Router::new()
+    let protected_api_routes = Router::new()
         .route("/warehouse", get(handlers::warehouse::list_warehouses))
         .route("/items", get(handlers::warehouse::list_items))
         .route("/scan", post(handlers::scan::handle_scan))
@@ -99,10 +108,18 @@ async fn main() {
         // AI API
         .route("/ai/analyze-image", post(handlers::ai::analyze_image))
         .route("/ai/respond", post(handlers::ai::handle_ai_respond))
+        // Upload & Attachments
+        .route("/upload/image", post(handlers::file::handle_image_upload))
+        .route("/attachments/:model/:id", get(handlers::file::list_entity_attachments))
         .layer(from_fn_with_state(
             app_state.clone(),
             middleware::auth::auth_middleware,
         ));
+
+    // Combine public + protected API routes
+    let api_routes = Router::new()
+        .merge(public_api_routes)
+        .merge(protected_api_routes);
 
     // Build the main router — strict /E prefix for microservice deployment
     let app = Router::new()
@@ -110,7 +127,7 @@ async fn main() {
         .route("/E/health", get(health_check))
         // Auth routes (public)
         .route("/E/auth/login", post(handlers::auth::login))
-        // Protected API routes
+        // API routes
         .nest("/E/api", api_routes)
         // Fallback for static files (SPA frontend)
         .fallback(web::static_handler)

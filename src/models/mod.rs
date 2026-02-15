@@ -11,3 +11,4 @@ pub mod rack;
 pub mod partner;
 pub mod file_resource;
 pub mod product_alias;
+pub mod attachment;
