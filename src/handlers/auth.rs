@@ -8,7 +8,9 @@ use crate::{db::AppState, models::user, utils::auth};
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
+    #[serde(alias = "Email")]
     pub email: String,
+    #[serde(alias = "Password")]
     pub password: String,
 }
 
