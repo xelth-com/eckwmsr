@@ -4,3 +4,4 @@ pub mod checksum;
 pub mod route;
 pub mod json;
 pub mod webdriver;
+pub mod encryption;

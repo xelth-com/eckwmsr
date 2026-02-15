@@ -30,3 +30,6 @@ rig-core = "0.30"
 anyhow = "1.0"
 thirtyfour = "0.35"
 regex = "1.10"
+printpdf = { version = "0.7", features = ["embedded_images"] }
+qrcode = "0.14"
+crc32fast = "1.3"

@@ -153,6 +153,8 @@ async fn main() {
         .route("/delivery/import/dhl", post(handlers::delivery::trigger_dhl_import))
         .route("/delivery/carriers", get(handlers::delivery::list_carriers))
         .route("/delivery/sync/history", get(handlers::delivery::get_sync_history))
+        // Print API
+        .route("/print/labels", post(handlers::print::generate_labels))
         .layer(from_fn_with_state(
             app_state.clone(),
             middleware::auth::auth_middleware,
