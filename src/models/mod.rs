@@ -16,3 +16,7 @@ pub mod delivery_carrier;
 pub mod stock_picking_delivery;
 pub mod delivery_tracking;
 pub mod sync_history;
+pub mod order;
+pub mod device_intake;
+pub mod inventory_discrepancy;
+pub mod document;
