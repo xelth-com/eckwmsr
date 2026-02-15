@@ -9,6 +9,9 @@ pub struct Config {
     pub jwt_secret: String,
     pub sync_relay_url: String,
     pub sync_network_key: String,
+    pub gemini_api_key: String,
+    pub gemini_primary_model: String,
+    pub gemini_fallback_model: String,
 }
 
 pub fn load_config() -> Config {
@@ -37,6 +40,12 @@ pub fn load_config() -> Config {
         "0000000000000000000000000000000000000000000000000000000000000000".to_string()
     });
 
+    let gemini_api_key = env::var("GEMINI_API_KEY").unwrap_or_default();
+    let gemini_primary_model =
+        env::var("GEMINI_PRIMARY_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
+    let gemini_fallback_model =
+        env::var("GEMINI_FALLBACK_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".to_string());
+
     Config {
         port,
         instance_id,
@@ -44,5 +53,8 @@ pub fn load_config() -> Config {
         jwt_secret,
         sync_relay_url,
         sync_network_key,
+        gemini_api_key,
+        gemini_primary_model,
+        gemini_fallback_model,
     }
 }
