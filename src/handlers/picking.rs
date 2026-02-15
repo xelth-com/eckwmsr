@@ -80,7 +80,32 @@ pub struct RouteResponse {
     pub route: Option<RouteResult>,
 }
 
+// --- Query params ---
+
+#[derive(Deserialize)]
+pub struct PickingQueryParams {
+    pub state: Option<String>,
+}
+
 // --- Handlers ---
+
+/// GET /api/odoo/pickings?state=assigned — lists pickings, optionally filtered by state.
+/// Mirrors Go's `listOdooPickings` which returns raw StockPicking rows.
+pub async fn list_odoo_pickings(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(params): axum::extract::Query<PickingQueryParams>,
+) -> Result<Json<Vec<picking::Model>>, StatusCode> {
+    let mut query = picking::Entity::find();
+    if let Some(ref s) = params.state {
+        query = query.filter(picking::Column::State.eq(s.as_str()));
+    }
+    let pickings = query
+        .order_by_desc(picking::Column::ScheduledDate)
+        .all(&state.db)
+        .await
+        .map_err(|e| { tracing::error!("DB query error: {}", e); StatusCode::INTERNAL_SERVER_ERROR })?;
+    Ok(Json(pickings))
+}
 
 /// GET /api/pickings/active — lists all assigned pickings with partner name and line counts.
 /// Mirrors Go's `listActivePickings` from `internal/handlers/picking.go`.

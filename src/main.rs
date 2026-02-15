@@ -133,6 +133,7 @@ async fn main() {
         .route("/sync/trigger", post(handlers::sync::trigger_sync))
         .route("/sync/push_test", post(handlers::sync::trigger_push))
         // Pickings API
+        .route("/odoo/pickings", get(handlers::picking::list_odoo_pickings))
         .route("/pickings/active", get(handlers::picking::list_active_pickings))
         .route("/pickings/:id/lines", get(handlers::picking::get_picking_lines))
         .route("/pickings/:id/lines/:line_id/confirm", post(handlers::picking::confirm_pick_line))
