@@ -56,6 +56,7 @@ struct RelayPullResponse {
     pub packets: Vec<RelayPullPacket>,
 }
 
+#[derive(Clone)]
 pub struct RelayClient {
     client: Client,
     relay_url: String,
@@ -111,6 +112,32 @@ impl RelayClient {
     /// Decodes the relay envelope and deserializes inner EncryptedSyncPackets.
     pub async fn pull_packets(&self) -> Result<Vec<EncryptedSyncPacket>, RelayError> {
         let url = format!("{}/E/pull/{}", self.relay_url, self.instance_id);
+
+        let response = self.client.get(&url).send().await?;
+
+        if !response.status().is_success() {
+            return Err(RelayError::StatusError(response.status()));
+        }
+
+        let pull_resp: RelayPullResponse = response.json().await?;
+
+        let mut packets = Vec::new();
+        for rp in pull_resp.packets {
+            let decoded_bytes = BASE64_STD.decode(&rp.payload_cipher)?;
+            let packet: EncryptedSyncPacket = serde_json::from_slice(&decoded_bytes)?;
+            packets.push(packet);
+        }
+
+        Ok(packets)
+    }
+
+    /// Pulls packets from the relay for an arbitrary target ID.
+    /// Used by pairing to pull from a well-known channel derived from the magic code.
+    pub async fn pull_packets_for(
+        &self,
+        target_id: &str,
+    ) -> Result<Vec<EncryptedSyncPacket>, RelayError> {
+        let url = format!("{}/E/pull/{}", self.relay_url, target_id);
 
         let response = self.client.get(&url).send().await?;
 

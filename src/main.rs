@@ -175,6 +175,10 @@ async fn main() {
         .route("/inventory/discrepancies/stats", get(handlers::inventory::get_discrepancy_stats))
         .route("/inventory/discrepancies/:id", get(handlers::inventory::get_discrepancy))
         .route("/inventory/discrepancies/:id/review", put(handlers::inventory::review_discrepancy))
+        // Pairing API (S2S Magic Code)
+        .route("/pairing/host", post(handlers::pairing::host_pairing))
+        .route("/pairing/connect", post(handlers::pairing::join_pairing))
+        .route("/pairing/check", post(handlers::pairing::check_pairing))
         .layer(from_fn_with_state(
             app_state.clone(),
             middleware::auth::auth_middleware,

@@ -11,3 +11,4 @@ pub mod rma;
 pub mod repair;
 pub mod inventory;
 pub mod mesh;
+pub mod pairing;

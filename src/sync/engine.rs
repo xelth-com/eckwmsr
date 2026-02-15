@@ -36,6 +36,11 @@ impl SyncEngine {
         &self.instance_id
     }
 
+    /// Returns a clone of the relay client for use in other services
+    pub fn relay_client(&self) -> RelayClient {
+        self.relay.clone()
+    }
+
     /// Pulls pending packets from the blind relay, decrypts them, and upserts into local DB.
     pub async fn pull_and_apply(&self) -> Result<usize, String> {
         info!(
