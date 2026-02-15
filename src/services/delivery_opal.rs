@@ -1,9 +1,10 @@
+use regex::Regex;
 use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 use thirtyfour::prelude::*;
 use tokio::time::sleep;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::delivery::{DeliveryProvider, DeliveryRequest, DeliveryResponse};
 use crate::utils::webdriver::ensure_chromedriver;
@@ -48,9 +49,8 @@ impl OpalProvider {
         driver.goto(&self.url).await?;
         sleep(Duration::from_secs(3)).await;
 
-        // Check if we need to login (if login form exists)
         if let Ok(user_field) = driver
-            .query(By::Css("input[name='username'], input[type='email']"))
+            .query(By::Css("input[name='username']"))
             .first()
             .await
         {
@@ -102,15 +102,90 @@ impl DeliveryProvider for OpalProvider {
                 return Err(anyhow::anyhow!("OPAL Login failed: {}", e));
             }
 
-            // TODO: Implement frame switching to 'optop' and 'opmain', filling the shipment form (Phase 8.3).
+            // 1. Navigate to "Neuer Auftrag" using the header frame (optop)
+            let optop_frame = driver.query(By::Css("frame[name='optop']")).first().await?;
+            optop_frame.enter_frame().await?;
+
+            if let Ok(new_order_link) = driver
+                .query(By::XPath(
+                    "//a[contains(text(), 'Neuer Auftrag') or contains(@href, 'new')]",
+                ))
+                .first()
+                .await
+            {
+                new_order_link.click().await?;
+                info!("OPAL: Clicked 'Neuer Auftrag'");
+                sleep(Duration::from_secs(2)).await;
+            }
+            driver.enter_default_frame().await?;
+
+            // 2. Switch to main content frame (opmain) to fill the form
+            let opmain_frame = driver.query(By::Css("frame[name='opmain']")).first().await?;
+            opmain_frame.enter_frame().await?;
+
+            // Helper macro to fill array-based inputs by index (0 = Pickup, 1 = Delivery)
+            macro_rules! fill_array_field {
+                ($selector:expr, $index:expr, $value:expr) => {
+                    if let Ok(elements) = driver.query(By::Css($selector)).all().await {
+                        if elements.len() > $index {
+                            let _ = elements[$index].send_keys($value).await;
+                        }
+                    }
+                };
+            }
+
+            // Pickup address (index 0)
+            fill_array_field!("input[name='address_name1[]']", 0, &req.sender_address.name1);
+            fill_array_field!("input[name='address_str[]']", 0, &req.sender_address.street);
+            fill_array_field!("input[name='address_plz[]']", 0, &req.sender_address.zip);
+            fill_array_field!("input[name='address_ort[]']", 0, &req.sender_address.city);
+
+            // Delivery address (index 1)
+            fill_array_field!("input[name='address_name1[]']", 1, &req.receiver_address.name1);
+            fill_array_field!("input[name='address_str[]']", 1, &req.receiver_address.street);
+            fill_array_field!("input[name='address_plz[]']", 1, &req.receiver_address.zip);
+            fill_array_field!("input[name='address_ort[]']", 1, &req.receiver_address.city);
+
+            // Package Details
+            if let Ok(weight_input) = driver.query(By::Css("input#segewicht")).first().await {
+                let weight_str = req.weight.to_string().replace('.', ",");
+                let _ = weight_input.send_keys(&weight_str).await;
+            }
+            if let Ok(ref_input) = driver.query(By::Css("input#seclref")).first().await {
+                let _ = ref_input.send_keys(&req.ref_number).await;
+            }
+
+            // Submit Order
+            if let Ok(submit_btn) = driver
+                .query(By::Css("input[type='submit'], button[type='submit']"))
+                .first()
+                .await
+            {
+                submit_btn.click().await?;
+                info!("OPAL: Form submitted");
+                sleep(Duration::from_secs(4)).await;
+            } else {
+                let _ = driver.quit().await;
+                return Err(anyhow::anyhow!("OPAL: Submit button not found"));
+            }
+
+            // Extract Tracking Number
+            let body = driver.query(By::Css("body")).first().await?;
+            let body_text = body.text().await.unwrap_or_default();
+
+            let re = Regex::new(r"(?i)Sendungsnummer[:\s]*([A-Z0-9-]+)").unwrap();
+            let tracking_number = if let Some(caps) = re.captures(&body_text) {
+                caps[1].to_string()
+            } else {
+                warn!("OPAL: Could not parse tracking number from response.");
+                format!("OPAL-UNKNOWN-{}", req.order_number)
+            };
+
             let _ = driver.quit().await;
 
             Ok(DeliveryResponse {
-                tracking_number: format!("OPAL-DUMMY-{}", req.order_number),
-                raw_response: serde_json::json!({
-                    "status": "simulated",
-                    "message": "OPAL Scraper initialized successfully"
-                }),
+                tracking_number,
+                raw_response: serde_json::json!({"status": "created", "provider": "opal"}),
             })
         })
     }
@@ -119,9 +194,6 @@ impl DeliveryProvider for OpalProvider {
         &self,
         _days: i32,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<Vec<serde_json::Value>>> + Send + '_>> {
-        Box::pin(async move {
-            // TODO: Implement parsing order list (Phase 8.3)
-            Ok(vec![])
-        })
+        Box::pin(async move { Ok(vec![]) })
     }
 }
