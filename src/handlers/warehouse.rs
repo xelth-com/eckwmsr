@@ -3,6 +3,7 @@ use sea_orm::*;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::error;
 
 use crate::{
     db::AppState,
@@ -25,7 +26,7 @@ pub async fn list_warehouses(
         .order_by_asc(location::Column::CompleteName)
         .all(&state.db)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| { error!("DB query error: {}", e); StatusCode::INTERNAL_SERVER_ERROR })?;
 
     Ok(Json(locs))
 }
@@ -38,13 +39,13 @@ pub async fn list_items(
     let products = product::Entity::find()
         .all(&state.db)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| { error!("DB query error: {}", e); StatusCode::INTERNAL_SERVER_ERROR })?;
 
     // Aggregate quants in memory (matches Go's SELECT product_id, SUM(quantity) GROUP BY)
     let quants = quant::Entity::find()
         .all(&state.db)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| { error!("DB query error: {}", e); StatusCode::INTERNAL_SERVER_ERROR })?;
 
     let mut qty_map: HashMap<i64, f64> = HashMap::new();
     for q in quants {
