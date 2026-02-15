@@ -49,7 +49,6 @@ pub struct EnrichedPickLine {
     pub product_name: String,
     pub product_barcode: String,
     pub product_code: String,
-    pub qty_demand: f64,
     pub qty_done: f64,
     pub location_id: i64,
     pub location_name: String,
@@ -240,8 +239,8 @@ pub async fn confirm_pick_line(
     }
 
     // Compute new state before converting to ActiveModel
-    let qty_demand = line.qty_demand;
-    let new_state = if payload.qty_done >= qty_demand && qty_demand > 0.0 {
+    // qty_demand not in DB table — treat as qty_done for state logic
+    let new_state = if payload.qty_done > 0.0 {
         "done".to_string()
     } else {
         line.state.clone()
@@ -250,8 +249,6 @@ pub async fn confirm_pick_line(
     let mut active_line: move_line::ActiveModel = line.into();
     active_line.qty_done = Set(payload.qty_done);
     active_line.state = Set(new_state);
-    active_line.updated_at = Set(Utc::now().into());
-
     let updated = active_line
         .update(&state.db)
         .await
@@ -265,7 +262,6 @@ pub async fn confirm_pick_line(
     Ok(Json(serde_json::json!({
         "id": updated.id,
         "qty_done": updated.qty_done,
-        "qty_demand": updated.qty_demand,
         "state": updated.state,
     })))
 }
@@ -286,19 +282,12 @@ pub async fn validate_picking(
         return Err((StatusCode::CONFLICT, "Picking already completed".to_string()));
     }
 
-    // Check for unfinished lines: state != 'done' OR qty_done < qty_demand
+    // Check for unfinished lines: state != 'done'
     let unfinished = move_line::Entity::find()
         .filter(
             Condition::all()
                 .add(move_line::Column::PickingId.eq(id))
-                .add(
-                    Condition::any()
-                        .add(move_line::Column::State.ne("done"))
-                        .add(
-                            Expr::col(move_line::Column::QtyDone)
-                                .lt(Expr::col(move_line::Column::QtyDemand)),
-                        ),
-                ),
+                .add(move_line::Column::State.ne("done")),
         )
         .count(&state.db)
         .await
@@ -314,7 +303,6 @@ pub async fn validate_picking(
     let mut active_pk: picking::ActiveModel = pk.into();
     active_pk.state = Set("done".to_string());
     active_pk.date_done = Set(Some(Utc::now().into()));
-    active_pk.updated_at = Set(Utc::now().into());
 
     let updated = active_pk
         .update(&state.db)
@@ -433,7 +421,6 @@ async fn enrich_pick_lines(
             product_name: String::new(),
             product_barcode: String::new(),
             product_code: String::new(),
-            qty_demand: ml.qty_demand,
             qty_done: ml.qty_done,
             location_id: ml.location_id,
             location_name: String::new(),

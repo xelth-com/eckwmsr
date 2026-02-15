@@ -11,7 +11,6 @@ pub struct Model {
     pub id: i64,
     pub picking_id: i64,
     pub product_id: i64,
-    pub qty_demand: f64,
     pub qty_done: f64,
     pub location_id: i64,
     pub location_dest_id: i64,
@@ -20,8 +19,6 @@ pub struct Model {
     pub lot_id: Option<i64>,
     pub state: String,
     pub reference: OdooString,
-    pub created_at: DateTimeUtc,
-    pub updated_at: DateTimeUtc,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

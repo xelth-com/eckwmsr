@@ -20,8 +20,6 @@ pub struct Model {
     pub picking_type_id: Option<i64>,
     pub partner_id: Option<i64>,
     pub date_done: Option<DateTimeUtc>,
-    pub created_at: DateTimeUtc,
-    pub updated_at: DateTimeUtc,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
