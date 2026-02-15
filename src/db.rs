@@ -30,10 +30,44 @@ pub async fn connect(database_url: &str) -> Result<DatabaseConnection, sea_orm::
 
 use crate::models::user;
 
-/// If no users exist, create a temporary setup account and return its password.
-/// The password is random and shown on the login page so the admin can get in.
+/// If no users exist (or only the setup account exists), create/keep a temporary
+/// setup account and return its password so it can be shown on the login page.
 pub async fn seed_setup_account(db: &DatabaseConnection) -> Option<String> {
+    use sea_orm::{ColumnTrait, QueryFilter};
+
     let count = user::Entity::find().count(db).await.unwrap_or(1);
+
+    // Check if setup account already exists
+    let setup_exists = user::Entity::find()
+        .filter(user::Column::Email.eq("admin@setup.local"))
+        .one(db)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+
+    // If real users exist (not just setup), don't create/show setup account
+    if count > 0 && !setup_exists {
+        return None;
+    }
+    // If only setup account exists, regenerate password
+    if setup_exists {
+        let password: String = rand::thread_rng()
+            .sample_iter(&rand::distributions::Alphanumeric)
+            .take(12)
+            .map(char::from)
+            .collect();
+        let hash = bcrypt::hash(&password, 10).ok()?;
+        // Update existing setup account password
+        use sea_orm::sea_query::Expr;
+        user::Entity::update_many()
+            .filter(user::Column::Email.eq("admin@setup.local"))
+            .col_expr(user::Column::Password, Expr::value(&hash))
+            .exec(db)
+            .await
+            .ok()?;
+        return Some(password);
+    }
     if count > 0 {
         return None;
     }
