@@ -20,7 +20,8 @@ pub struct Model {
     #[serde(rename = "lastSyncedAt")]
     pub last_synced_at: DateTimeUtc,
     #[serde(rename = "createdAt")]
-    pub created_at: DateTimeUtc,
+    #[sea_orm(column_type = "DateTime")]
+    pub created_at: chrono::NaiveDateTime,
     #[serde(rename = "updatedAt")]
     pub updated_at: DateTimeUtc,
 }
