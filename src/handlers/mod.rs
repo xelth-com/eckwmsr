@@ -7,3 +7,6 @@ pub mod ai;
 pub mod file;
 pub mod delivery;
 pub mod print;
+pub mod rma;
+pub mod repair;
+pub mod inventory;

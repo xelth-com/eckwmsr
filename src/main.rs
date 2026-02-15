@@ -11,7 +11,7 @@ mod web;
 
 use axum::{
     middleware::from_fn_with_state,
-    routing::{get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use serde::Serialize;
@@ -155,6 +155,13 @@ async fn main() {
         .route("/delivery/sync/history", get(handlers::delivery::get_sync_history))
         // Print API
         .route("/print/labels", post(handlers::print::generate_labels))
+        // Repair & Inventory API
+        .route("/repair/event", post(handlers::repair::handle_repair_event))
+        .route("/repair/events", get(handlers::repair::list_repair_events))
+        .route("/inventory/discrepancies", get(handlers::inventory::list_discrepancies))
+        .route("/inventory/discrepancies/stats", get(handlers::inventory::get_discrepancy_stats))
+        .route("/inventory/discrepancies/:id", get(handlers::inventory::get_discrepancy))
+        .route("/inventory/discrepancies/:id/review", put(handlers::inventory::review_discrepancy))
         .layer(from_fn_with_state(
             app_state.clone(),
             middleware::auth::auth_middleware,
@@ -165,6 +172,15 @@ async fn main() {
         .merge(public_api_routes)
         .merge(protected_api_routes);
 
+    // RMA/Orders routes (at /E/rma to match frontend api.js expectations)
+    let protected_rma_routes = Router::new()
+        .route("/", get(handlers::rma::list_orders).post(handlers::rma::create_order))
+        .route("/:id", get(handlers::rma::get_order).put(handlers::rma::update_order).delete(handlers::rma::delete_order))
+        .layer(from_fn_with_state(
+            app_state.clone(),
+            middleware::auth::auth_middleware,
+        ));
+
     // Build the main router — strict /E prefix for microservice deployment
     let app = Router::new()
         // Health check (public)
@@ -173,6 +189,8 @@ async fn main() {
         .route("/E/auth/login", post(handlers::auth::login))
         // API routes
         .nest("/E/api", api_routes)
+        // RMA routes (root level, matching Go router)
+        .nest("/E/rma", protected_rma_routes)
         // Fallback for static files (SPA frontend)
         .fallback(web::static_handler)
         .with_state(app_state);
