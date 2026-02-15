@@ -22,6 +22,9 @@ use tracing::{error, info};
 use crate::sync::engine::SyncEngine;
 use crate::sync::relay_client::RelayClient;
 use crate::sync::security::{SecurityLayer, SyncNodeRole};
+use crate::services::delivery::DeliveryService;
+use crate::services::delivery_dhl::DhlProvider;
+use crate::services::delivery_opal::OpalProvider;
 
 #[derive(Serialize)]
 struct HealthResponse {
@@ -80,6 +83,36 @@ async fn main() {
     // Initialize File Store (CAS)
     let file_store = services::filestore::FileStoreService::new(".");
 
+    // Initialize Delivery Service
+    let delivery_service = DeliveryService::new(db_conn.clone(), cfg.clone());
+
+    // Register DHL provider if configured
+    if let Ok(dhl_user) = std::env::var("DHL_USERNAME") {
+        if !dhl_user.is_empty() {
+            let dhl_pass = std::env::var("DHL_PASSWORD").unwrap_or_default();
+            let dhl_url = std::env::var("DHL_URL").unwrap_or_default();
+            delivery_service
+                .register_provider(Box::new(DhlProvider::new(dhl_user, dhl_pass, dhl_url)))
+                .await;
+            info!("Registered DHL Delivery Provider");
+        }
+    }
+
+    // Register OPAL provider if configured
+    if let Ok(opal_user) = std::env::var("OPAL_USERNAME") {
+        if !opal_user.is_empty() {
+            let opal_pass = std::env::var("OPAL_PASSWORD").unwrap_or_default();
+            let opal_url = std::env::var("OPAL_URL").unwrap_or_default();
+            delivery_service
+                .register_provider(Box::new(OpalProvider::new(opal_user, opal_pass, opal_url)))
+                .await;
+            info!("Registered OPAL Delivery Provider");
+        }
+    }
+
+    // Drop delivery_service for now — it will be stored in AppState in Phase 8.3
+    let _ = delivery_service;
+
     let app_state = Arc::new(db::AppState {
         db: db_conn,
         config: cfg.clone(),
@@ -111,6 +144,15 @@ async fn main() {
         // Upload & Attachments
         .route("/upload/image", post(handlers::file::handle_image_upload))
         .route("/attachments/:model/:id", get(handlers::file::list_entity_attachments))
+        // Delivery API
+        .route("/delivery/config", get(handlers::delivery::get_delivery_config))
+        .route("/delivery/shipments", get(handlers::delivery::list_shipments).post(handlers::delivery::create_shipment))
+        .route("/delivery/shipments/:id", get(handlers::delivery::get_shipment))
+        .route("/delivery/shipments/:id/cancel", post(handlers::delivery::cancel_shipment))
+        .route("/delivery/import/opal", post(handlers::delivery::trigger_opal_import))
+        .route("/delivery/import/dhl", post(handlers::delivery::trigger_dhl_import))
+        .route("/delivery/carriers", get(handlers::delivery::list_carriers))
+        .route("/delivery/sync/history", get(handlers::delivery::get_sync_history))
         .layer(from_fn_with_state(
             app_state.clone(),
             middleware::auth::auth_middleware,
