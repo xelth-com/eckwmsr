@@ -4,6 +4,7 @@ use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use thiserror::Error;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::models::sync_packet::EncryptedSyncPacket;
@@ -20,9 +21,29 @@ pub enum RelayError {
     Base64Error(#[from] base64::DecodeError),
 }
 
-/// Matches eck's `PushRequest` — payload_cipher and nonce are base64-encoded in JSON
+// -- Relay API request/response types --
+
+#[derive(Debug, Serialize)]
+struct RelayRegisterRequest {
+    pub instance_id: String,
+    pub mesh_id: String,
+    pub external_ip: String,
+    pub port: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RelayRegisterResponse {
+    pub ok: bool,
+    pub instance_id: String,
+    pub mesh_id: String,
+    pub status: String,
+}
+
 #[derive(Debug, Serialize)]
 struct RelayPushRequest {
+    pub mesh_id: String,
     pub target_instance_id: String,
     pub sender_instance_id: String,
     pub payload_cipher: String, // base64
@@ -31,40 +52,60 @@ struct RelayPushRequest {
     pub ttl_seconds: Option<u64>,
 }
 
-/// Matches eck's `PushResponse`
 #[derive(Debug, Deserialize)]
 struct RelayPushResponse {
     pub ok: bool,
     pub packet_id: Uuid,
 }
 
-/// Matches eck's `EncryptedPacket` in pull response
+/// Relay pull packet (raw from relay, uses base64 encoding)
 #[derive(Debug, Deserialize)]
 struct RelayPullPacket {
     pub id: Uuid,
+    pub mesh_id: String,
     pub target_instance_id: String,
     pub sender_instance_id: String,
-    pub payload_cipher: String, // base64
-    pub nonce: String,          // base64
+    #[serde(with = "serde_base64")]
+    pub payload_cipher: Vec<u8>,
+    #[serde(with = "serde_base64")]
+    pub nonce: Vec<u8>,
     pub created_at: DateTime<Utc>,
     pub ttl: DateTime<Utc>,
 }
 
-/// Matches eck's `PullResponse`
 #[derive(Debug, Deserialize)]
 struct RelayPullResponse {
+    pub mesh_id: String,
     pub packets: Vec<RelayPullPacket>,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct MeshStatusResponse {
+    pub mesh_id: String,
+    pub nodes: Vec<RelayNodeInfo>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RelayNodeInfo {
+    pub instance_id: String,
+    pub external_ip: String,
+    pub port: u16,
+    pub status: String,
+    pub last_seen: DateTime<Utc>,
+}
+
+// -- RelayClient --
 
 #[derive(Clone)]
 pub struct RelayClient {
     client: Client,
     relay_url: String,
     instance_id: String,
+    mesh_id: String,
 }
 
 impl RelayClient {
-    pub fn new(relay_url: &str, instance_id: &str) -> Self {
+    pub fn new(relay_url: &str, instance_id: &str, mesh_id: &str) -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(15))
             .build()
@@ -74,11 +115,46 @@ impl RelayClient {
             client,
             relay_url: relay_url.trim_end_matches('/').to_string(),
             instance_id: instance_id.to_string(),
+            mesh_id: mesh_id.to_string(),
         }
     }
 
-    /// Pushes an EncryptedSyncPacket to the blind relay for a specific target.
-    /// The packet is JSON-serialized and placed into eck's payload_cipher field (base64).
+    // -- Heartbeat --
+
+    /// Sends a heartbeat (register) to the relay so other nodes can discover us.
+    pub async fn send_heartbeat(
+        &self,
+        external_ip: &str,
+        port: u16,
+        status: Option<&str>,
+    ) -> Result<RelayRegisterResponse, RelayError> {
+        let url = format!("{}/E/register", self.relay_url);
+
+        let payload = RelayRegisterRequest {
+            instance_id: self.instance_id.clone(),
+            mesh_id: self.mesh_id.clone(),
+            external_ip: external_ip.to_string(),
+            port,
+            status: status.map(|s| s.to_string()),
+        };
+
+        let response = self.client.post(&url).json(&payload).send().await?;
+
+        if !response.status().is_success() {
+            return Err(RelayError::StatusError(response.status()));
+        }
+
+        let result: RelayRegisterResponse = response.json().await?;
+        info!(
+            "Heartbeat OK: [{}] {} -> {}",
+            self.mesh_id, self.instance_id, result.status
+        );
+        Ok(result)
+    }
+
+    // -- Push/Pull packets --
+
+    /// Pushes an EncryptedSyncPacket to the relay for a specific target.
     pub async fn push_packet(
         &self,
         target_instance: &str,
@@ -87,10 +163,10 @@ impl RelayClient {
     ) -> Result<Uuid, RelayError> {
         let url = format!("{}/E/push", self.relay_url);
 
-        // Serialize our EncryptedSyncPacket into bytes, then base64 for the relay envelope
         let packet_bytes = serde_json::to_vec(packet)?;
 
         let req_body = RelayPushRequest {
+            mesh_id: self.mesh_id.clone(),
             target_instance_id: target_instance.to_string(),
             sender_instance_id: self.instance_id.clone(),
             payload_cipher: BASE64_STD.encode(&packet_bytes),
@@ -108,36 +184,29 @@ impl RelayClient {
         Ok(push_resp.packet_id)
     }
 
-    /// Pulls pending packets from the blind relay destined for this instance.
-    /// Decodes the relay envelope and deserializes inner EncryptedSyncPackets.
+    /// Pulls pending packets from the relay for this instance.
     pub async fn pull_packets(&self) -> Result<Vec<EncryptedSyncPacket>, RelayError> {
-        let url = format!("{}/E/pull/{}", self.relay_url, self.instance_id);
-
-        let response = self.client.get(&url).send().await?;
-
-        if !response.status().is_success() {
-            return Err(RelayError::StatusError(response.status()));
-        }
-
-        let pull_resp: RelayPullResponse = response.json().await?;
-
-        let mut packets = Vec::new();
-        for rp in pull_resp.packets {
-            let decoded_bytes = BASE64_STD.decode(&rp.payload_cipher)?;
-            let packet: EncryptedSyncPacket = serde_json::from_slice(&decoded_bytes)?;
-            packets.push(packet);
-        }
-
-        Ok(packets)
+        self.pull_packets_for_target(&self.mesh_id, &self.instance_id)
+            .await
     }
 
-    /// Pulls packets from the relay for an arbitrary target ID.
+    /// Pulls packets from the relay for an arbitrary mesh_id + target_id.
     /// Used by pairing to pull from a well-known channel derived from the magic code.
     pub async fn pull_packets_for(
         &self,
         target_id: &str,
     ) -> Result<Vec<EncryptedSyncPacket>, RelayError> {
-        let url = format!("{}/E/pull/{}", self.relay_url, target_id);
+        // For pairing channels, use the target_id as both mesh_id and target
+        self.pull_packets_for_target(target_id, target_id).await
+    }
+
+    /// Internal: pulls from /E/pull/{mesh_id}/{instance_id}
+    async fn pull_packets_for_target(
+        &self,
+        mesh_id: &str,
+        target_id: &str,
+    ) -> Result<Vec<EncryptedSyncPacket>, RelayError> {
+        let url = format!("{}/E/pull/{}/{}", self.relay_url, mesh_id, target_id);
 
         let response = self.client.get(&url).send().await?;
 
@@ -149,13 +218,59 @@ impl RelayClient {
 
         let mut packets = Vec::new();
         for rp in pull_resp.packets {
-            let decoded_bytes = BASE64_STD.decode(&rp.payload_cipher)?;
-            let packet: EncryptedSyncPacket = serde_json::from_slice(&decoded_bytes)?;
+            let packet: EncryptedSyncPacket = serde_json::from_slice(&rp.payload_cipher)?;
             packets.push(packet);
         }
 
         Ok(packets)
     }
+
+    // -- Mesh status --
+
+    /// Gets the list of nodes registered in our mesh from the relay.
+    pub async fn get_mesh_status(&self) -> Result<Vec<RelayNodeInfo>, RelayError> {
+        let url = format!("{}/E/mesh/{}/status", self.relay_url, self.mesh_id);
+
+        let response = self.client.get(&url).send().await?;
+
+        if !response.status().is_success() {
+            return Err(RelayError::StatusError(response.status()));
+        }
+
+        let result: MeshStatusResponse = response.json().await?;
+        info!(
+            "Mesh status: [{}] {} nodes",
+            self.mesh_id,
+            result.nodes.len()
+        );
+        Ok(result.nodes)
+    }
+
+    /// Resolves a specific node's address from the relay.
+    pub async fn resolve_node(
+        &self,
+        instance_id: &str,
+    ) -> Result<Option<RelayNodeInfo>, RelayError> {
+        let url = format!(
+            "{}/E/mesh/{}/resolve/{}",
+            self.relay_url, self.mesh_id, instance_id
+        );
+
+        let response = self.client.get(&url).send().await?;
+
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+
+        if !response.status().is_success() {
+            return Err(RelayError::StatusError(response.status()));
+        }
+
+        let node: RelayNodeInfo = response.json().await?;
+        Ok(Some(node))
+    }
+
+    // -- Accessors --
 
     pub fn instance_id(&self) -> &str {
         &self.instance_id
@@ -163,5 +278,24 @@ impl RelayClient {
 
     pub fn relay_url(&self) -> &str {
         &self.relay_url
+    }
+
+    pub fn mesh_id(&self) -> &str {
+        &self.mesh_id
+    }
+}
+
+/// Base64 serde helper for Vec<u8> fields
+mod serde_base64 {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&STANDARD.encode(bytes))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        let s = String::deserialize(d)?;
+        STANDARD.decode(&s).map_err(serde::de::Error::custom)
     }
 }

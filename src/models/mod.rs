@@ -20,3 +20,4 @@ pub mod order;
 pub mod device_intake;
 pub mod inventory_discrepancy;
 pub mod document;
+pub mod mesh_node;

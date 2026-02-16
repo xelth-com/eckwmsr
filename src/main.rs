@@ -54,7 +54,7 @@ async fn main() {
 
     // Initialize Sync Engine
     let security_layer = SecurityLayer::new(SyncNodeRole::Peer, &cfg.sync_network_key);
-    let relay_client = RelayClient::new(&cfg.sync_relay_url, &cfg.instance_id);
+    let relay_client = RelayClient::new(&cfg.sync_relay_url, &cfg.instance_id, &cfg.mesh_id);
     let sync_engine = SyncEngine::new(
         db_conn.clone(),
         security_layer,
@@ -126,6 +126,11 @@ async fn main() {
 
     let ws_hub = handlers::ws::WsHub::new();
 
+    // Create a relay client for the heartbeat task
+    let heartbeat_relay = RelayClient::new(&cfg.sync_relay_url, &cfg.instance_id, &cfg.mesh_id);
+    let heartbeat_base_url = cfg.base_url.clone();
+    let heartbeat_port = cfg.port;
+
     let app_state = Arc::new(db::AppState {
         db: db_conn,
         config: cfg.clone(),
@@ -135,6 +140,20 @@ async fn main() {
         ws_hub,
         setup_password,
     });
+
+    // Start heartbeat background task (every 5 minutes)
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+        loop {
+            interval.tick().await;
+            let (ip, port) = parse_base_url(&heartbeat_base_url, heartbeat_port);
+            match heartbeat_relay.send_heartbeat(&ip, port, None).await {
+                Ok(_) => {}
+                Err(e) => tracing::warn!("Heartbeat failed: {}", e),
+            }
+        }
+    });
+    info!("Heartbeat task started (every 5 min), mesh_id: {}", cfg.mesh_id);
 
     // Public API routes (no JWT — CAS files served via unguessable UUIDs)
     let public_api_routes = Router::new()
@@ -182,6 +201,8 @@ async fn main() {
         .route("/pairing/host", post(handlers::pairing::host_pairing))
         .route("/pairing/connect", post(handlers::pairing::join_pairing))
         .route("/pairing/check", post(handlers::pairing::check_pairing))
+        .route("/pairing/approve", post(handlers::pairing::approve_pairing))
+        .route("/pairing/finalize", post(handlers::pairing::finalize_pairing))
         .layer(from_fn_with_state(
             app_state.clone(),
             middleware::auth::auth_middleware,
@@ -204,7 +225,8 @@ async fn main() {
     // Mesh routes (public — uses mesh tokens, not JWT)
     let mesh_routes = Router::new()
         .route("/nodes", get(handlers::mesh::list_nodes))
-        .route("/status", get(handlers::mesh::get_status));
+        .route("/status", get(handlers::mesh::get_status))
+        .route("/relay-status", get(handlers::mesh::get_relay_status));
 
     // Build the main router — strict /E prefix for microservice deployment
     let app = Router::new()
@@ -230,6 +252,23 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+/// Extract IP and port from BASE_URL (e.g. "https://pda.repair" or "http://192.168.1.50:3210")
+fn parse_base_url(base_url: &str, default_port: u16) -> (String, u16) {
+    if base_url.is_empty() {
+        return ("0.0.0.0".to_string(), default_port);
+    }
+    let url = base_url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://");
+    if let Some(colon_pos) = url.rfind(':') {
+        let ip = &url[..colon_pos];
+        let port = url[colon_pos + 1..].parse().unwrap_or(default_port);
+        (ip.to_string(), port)
+    } else {
+        (url.to_string(), default_port)
+    }
 }
 
 async fn health_check() -> Json<HealthResponse> {
