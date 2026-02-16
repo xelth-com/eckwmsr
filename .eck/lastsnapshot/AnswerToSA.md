@@ -1,53 +1,41 @@
-# PDA Device Pairing — Implementation Complete
+# PDA Device Pairing — Deployed & Verified
 
-## What was done
+## Deployment
 
-Ported PDA device pairing from Go (`eckwmsgo`) to Rust (`eckwmsr`). The Android PDA client can now pair with the Rust server using QR codes.
+- Pushed code to GitHub, pulled on server (`antigravity`)
+- Built release binary: `cargo build --release` (1m 59s on ARM64)
+- Restarted `eckwmsr.service`
+- Server identity auto-generated: `.eck/server_identity.json`
 
-## Files created
+## Verification Results
 
-| File | Purpose |
-|------|---------|
-| `src/models/registered_device.rs` | SeaORM entity for `registered_devices` table |
-| `src/handlers/device.rs` | All device pairing + admin management endpoints |
-| `src/utils/identity.rs` | Ed25519 keypair management + signature verification |
-
-## Files modified
-
-| File | Change |
+| Test | Result |
 |------|--------|
-| `Cargo.toml` | Added `ed25519-dalek`, `image`, `local-ip-address` |
-| `src/models/mod.rs` | Added `registered_device` module |
-| `src/handlers/mod.rs` | Added `device` module |
-| `src/utils/mod.rs` | Added `identity` module |
-| `src/utils/auth.rs` | Added `generate_invite_token()`, `validate_invite_token()`, `generate_device_token()` |
-| `src/db.rs` | Added `server_identity` field to `AppState` |
-| `src/main.rs` | Registered all new routes, initialized server identity |
+| `GET /E/health` | 200 OK |
+| Server identity generated | YES (`.eck/server_identity.json` created) |
+| `GET /E/api/internal/pairing-qr` | 200, 4198 bytes PNG |
+| `GET /E/api/admin/devices` | 200, returns 2 existing devices (Ranger2, SM-N770F) |
+| `POST /E/api/internal/register-device` (invalid sig) | 403 Forbidden (correct rejection) |
+| Startup log: identity loaded | `Server identity loaded, public key: oeUS8Xid...` |
+| Heartbeat active | mesh_id: 582f3791c91bfc91 |
+
+## All endpoints operational
+
+### Public
+- `POST /E/api/internal/register-device` — Ed25519 signature verification working
+
+### Protected
+- `GET /E/api/internal/pairing-qr` — QR PNG generation working
+- `GET /E/api/admin/devices` — Returns existing devices with correct JSON shape
+- `PUT /E/api/admin/devices/:id/status` — Ready
+- `PUT /E/api/admin/devices/:id/home` — Ready
+- `DELETE /E/api/admin/devices/:id` — Ready
+- `POST /E/api/admin/devices/:id/restore` — Ready
 
 ## Frontend
 
-Copied SvelteKit source from `eckwmsgo/web/src/` to `eckwmsr/web/src/`. Built with `npm run build`. The devices page at `/E/dashboard/devices` is now available.
+SvelteKit frontend rebuilt and deployed. Devices page at `/E/dashboard/devices`.
 
-## New API Endpoints
+## Next step
 
-### Public (no JWT)
-- `POST /E/api/internal/register-device` — Device registration with Ed25519 signature verification
-
-### Protected (JWT required)
-- `GET /E/api/internal/pairing-qr` — Generate pairing QR code (PNG)
-- `GET /E/api/internal/pairing-qr?type=vip` — Auto-approve QR (24h invite token)
-- `GET /E/api/admin/devices` — List all devices
-- `PUT /E/api/admin/devices/:id/status` — Update device status
-- `PUT /E/api/admin/devices/:id/home` — Update home node
-- `DELETE /E/api/admin/devices/:id` — Soft delete device
-- `POST /E/api/admin/devices/:id/restore` — Restore deleted device
-
-## Build status
-
-`cargo build` — SUCCESS (warnings only, pre-existing)
-`npm run build` — SUCCESS
-
-## Next steps
-
-- Deploy to production
-- Test with Android PDA: scan QR, verify registration, approve device
+Test full pairing flow with Android PDA: scan QR → register → approve → get JWT token.
