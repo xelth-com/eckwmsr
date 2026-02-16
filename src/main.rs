@@ -126,6 +126,10 @@ async fn main() {
 
     let ws_hub = handlers::ws::WsHub::new();
 
+    // Initialize server identity for device pairing (Ed25519 keypair)
+    let server_identity = utils::identity::load_or_generate_identity(&cfg.instance_id);
+    info!("Server identity loaded, public key: {}...", &server_identity.public_key[..8]);
+
     // Create a relay client for the heartbeat task
     let heartbeat_relay = RelayClient::new(&cfg.sync_relay_url, &cfg.instance_id, &cfg.mesh_id);
     let heartbeat_base_url = cfg.base_url.clone();
@@ -139,6 +143,7 @@ async fn main() {
         file_store,
         ws_hub,
         setup_password,
+        server_identity,
     });
 
     // Start heartbeat background task (every 5 minutes)
@@ -203,6 +208,13 @@ async fn main() {
         .route("/pairing/check", post(handlers::pairing::check_pairing))
         .route("/pairing/approve", post(handlers::pairing::approve_pairing))
         .route("/pairing/finalize", post(handlers::pairing::finalize_pairing))
+        // Device Pairing (QR code + admin management)
+        .route("/internal/pairing-qr", get(handlers::device::generate_pairing_qr))
+        .route("/admin/devices", get(handlers::device::list_devices))
+        .route("/admin/devices/:id/status", put(handlers::device::update_device_status))
+        .route("/admin/devices/:id/home", put(handlers::device::update_device_home))
+        .route("/admin/devices/:id", delete(handlers::device::delete_device))
+        .route("/admin/devices/:id/restore", post(handlers::device::restore_device))
         .layer(from_fn_with_state(
             app_state.clone(),
             middleware::auth::auth_middleware,
@@ -237,6 +249,8 @@ async fn main() {
         // Auth routes (public)
         .route("/E/auth/login", post(handlers::auth::login))
         .route("/E/auth/setup-status", get(handlers::auth::setup_status))
+        // Device registration (public — uses Ed25519 signature, not JWT)
+        .route("/E/api/internal/register-device", post(handlers::device::register_device))
         // Mesh routes (public)
         .nest("/E/mesh", mesh_routes)
         // API routes

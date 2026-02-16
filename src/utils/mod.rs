@@ -5,3 +5,4 @@ pub mod route;
 pub mod json;
 pub mod webdriver;
 pub mod encryption;
+pub mod identity;

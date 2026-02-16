@@ -80,3 +80,60 @@ pub fn validate_token(token: &str, secret: &str) -> Result<Claims, String> {
 
     Ok(token_data.claims)
 }
+
+/// Claims for invite tokens (VIP QR auto-approve)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct InviteClaims {
+    #[serde(rename = "type")]
+    pub token_type: String,
+    pub iat: usize,
+    pub exp: usize,
+}
+
+/// Generate an invite token for VIP QR codes (24h validity)
+pub fn generate_invite_token(secret: &str) -> Result<String, String> {
+    let now = Utc::now();
+    let claims = InviteClaims {
+        token_type: "invite".to_string(),
+        iat: now.timestamp() as usize,
+        exp: (now + Duration::hours(24)).timestamp() as usize,
+    };
+
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Validate an invite token and check it has type="invite"
+pub fn validate_invite_token(token: &str, secret: &str) -> Result<bool, String> {
+    let token_data = decode::<InviteClaims>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::default(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(token_data.claims.token_type == "invite")
+}
+
+/// Generate a device access token (1 year, role="device")
+pub fn generate_device_token(device_id: &str, secret: &str) -> Result<String, String> {
+    let expiration = Utc::now() + Duration::days(365);
+    let claims = Claims {
+        id: device_id.to_string(),
+        email: format!("{}@device.local", device_id),
+        role: "device".to_string(),
+        user_type: "device".to_string(),
+        exp: expiration.timestamp() as usize,
+    };
+
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )
+    .map_err(|e| e.to_string())
+}

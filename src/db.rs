@@ -7,6 +7,7 @@ use crate::config::Config;
 use crate::handlers::ws::WsHub;
 use crate::services::filestore::FileStoreService;
 use crate::sync::engine::SyncEngine;
+use crate::utils::identity::ServerIdentity;
 
 pub struct AppState {
     pub db: DatabaseConnection,
@@ -17,6 +18,8 @@ pub struct AppState {
     pub ws_hub: WsHub,
     /// Temporary setup password shown on login page when no users exist
     pub setup_password: Option<String>,
+    /// Server Ed25519 identity for device pairing QR codes
+    pub server_identity: ServerIdentity,
 }
 
 pub async fn connect(database_url: &str) -> Result<DatabaseConnection, sea_orm::DbErr> {
