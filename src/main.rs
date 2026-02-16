@@ -124,12 +124,15 @@ async fn main() {
         info!("=================================================");
     }
 
+    let ws_hub = handlers::ws::WsHub::new();
+
     let app_state = Arc::new(db::AppState {
         db: db_conn,
         config: cfg.clone(),
         sync_engine,
         ai_client,
         file_store,
+        ws_hub,
         setup_password,
     });
 
@@ -207,6 +210,8 @@ async fn main() {
     let app = Router::new()
         // Health check (public)
         .route("/E/health", get(health_check))
+        // WebSocket (public — uses device identify handshake)
+        .route("/E/ws", get(handlers::ws::ws_handler))
         // Auth routes (public)
         .route("/E/auth/login", post(handlers::auth::login))
         .route("/E/auth/setup-status", get(handlers::auth::setup_status))

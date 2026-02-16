@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use crate::ai::client::GeminiClient;
 use crate::config::Config;
+use crate::handlers::ws::WsHub;
 use crate::services::filestore::FileStoreService;
 use crate::sync::engine::SyncEngine;
 
@@ -13,6 +14,7 @@ pub struct AppState {
     pub sync_engine: SyncEngine,
     pub ai_client: Option<GeminiClient>,
     pub file_store: FileStoreService,
+    pub ws_hub: WsHub,
     /// Temporary setup password shown on login page when no users exist
     pub setup_password: Option<String>,
 }
