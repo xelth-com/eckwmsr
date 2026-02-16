@@ -31,8 +31,7 @@ pub fn load_config() -> Config {
 
     let base_url = env::var("BASE_URL").unwrap_or_default();
 
-    let database_url = env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/eckwms".to_string());
+    let database_url = env::var("DATABASE_URL").unwrap_or_default();
 
     let jwt_secret =
         env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_change_me".to_string());

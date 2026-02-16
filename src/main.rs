@@ -41,7 +41,22 @@ async fn main() {
     info!("Starting eckWMS Rust Edition (eckwmsr)");
     info!("Instance ID: {}", cfg.instance_id);
 
-    let db_conn = match db::connect(&cfg.database_url).await {
+    // Database: use external PostgreSQL if DATABASE_URL is set, otherwise start embedded PG
+    let (embedded_pg, database_url) = if cfg.database_url.is_empty() {
+        match db::start_embedded().await {
+            Ok((pg, url)) => (Some(pg), url),
+            Err(e) => {
+                error!("Embedded PostgreSQL failed to start: {}", e);
+                error!("Set DATABASE_URL to use an external database instead.");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        info!("Using external database: {}", cfg.database_url);
+        (None, cfg.database_url.clone())
+    };
+
+    let db_conn = match db::connect(&database_url).await {
         Ok(conn) => {
             info!("Database connection established");
             conn
@@ -51,6 +66,14 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    // If using embedded PG, ensure all tables exist
+    if embedded_pg.is_some() {
+        if let Err(e) = db::create_schema(&db_conn).await {
+            error!("Schema creation failed: {}", e);
+            std::process::exit(1);
+        }
+    }
 
     // Initialize Sync Engine
     let security_layer = SecurityLayer::new(SyncNodeRole::Peer, &cfg.sync_network_key);
@@ -144,6 +167,7 @@ async fn main() {
         ws_hub,
         setup_password,
         server_identity,
+        _embedded_pg: embedded_pg,
     });
 
     // Start heartbeat background task (every 5 minutes)

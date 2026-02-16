@@ -1,31 +1,44 @@
-# Admin User Management API — Implementation Report
+# Embedded PostgreSQL — Implementation Report
 
 ## What was done
-Implemented the missing Admin User CRUD API that the dashboard frontend (`/dashboard/users`) expects.
+Added embedded PostgreSQL support via `postgresql_embedded` crate. The server now starts without any external database dependency.
+
+## ENV Switch Logic
+- `DATABASE_URL` **set** → uses external PostgreSQL (production mode, same as before)
+- `DATABASE_URL` **not set** (default) → starts embedded PostgreSQL on port 5433, auto-creates `eckwms` database and all tables
 
 ## Changes
 
-### New file: `src/handlers/admin_users.rs`
-- **GET /api/admin/users** — Lists all non-deleted users, returns `SafeUser` DTO (never exposes password/pin hashes)
-- **POST /api/admin/users** — Creates user with bcrypt-hashed password, validates required fields, returns 201
-- **PUT /api/admin/users/:id** — Partial update (name, role, email, pin, isActive, password), skips empty strings
-- **DELETE /api/admin/users/:id** — Soft delete via `deleted_at` timestamp (matches Go behavior)
+### `Cargo.toml`
+- Added `postgresql_embedded = { version = "0.20", features = ["tokio"] }`
 
-### Modified: `src/handlers/mod.rs`
-- Added `pub mod admin_users;`
+### `src/config.rs`
+- `DATABASE_URL` default changed from `postgres://...` to empty string (triggers embedded mode)
 
-### Modified: `src/main.rs`
-- Registered routes under protected API group:
-  - `/admin/users` (GET + POST)
-  - `/admin/users/:id` (PUT + DELETE)
+### `src/db.rs`
+- Added `start_embedded()` — configures and starts embedded PG with persistent data dir (`./data/pg/`)
+- Added `create_schema()` — uses `sea_orm::Schema::create_table_from_entity()` for all 22 entities with `IF NOT EXISTS`
+- `AppState` now holds `_embedded_pg: Option<PostgreSQL>` to keep the PG process alive
 
-## Key decisions
-- Soft delete matching Go version (sets `deleted_at` instead of row removal)
-- All queries filter `deleted_at IS NULL` to hide soft-deleted users
-- `SafeUser` DTO includes `hasPin` (computed), `preferredLanguage` to match Go response shape
-- Create returns HTTP 201 (not 200) matching Go behavior
-- Duplicate key errors return 409 Conflict
+### `src/main.rs`
+- At startup: checks if `database_url` is empty → calls `start_embedded()`, stores handle in `AppState`
+- After connect: if embedded mode, calls `create_schema()` to ensure tables exist
+
+### `.gitignore`
+- Added `data/` to exclude embedded PG data directory
+
+## First run behavior
+1. Downloads PostgreSQL binaries (~100MB, cached at `~/.theseus/postgresql/`)
+2. Initializes data directory at `./data/pg/`
+3. Starts PG on port 5433
+4. Creates `eckwms` database
+5. Creates all 22 tables
+6. Seeds setup account (admin@setup.local)
+
+## Subsequent runs
+- Skips download (cached)
+- Starts PG in ~2-5 seconds
+- Tables already exist (IF NOT EXISTS), data persists
 
 ## Verification
 - `cargo check` passes with zero errors
-- `cargo build` compiles successfully (binary write blocked by running process — not a code issue)

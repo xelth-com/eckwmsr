@@ -1,10 +1,13 @@
-use sea_orm::{Database, EntityTrait, PaginatorTrait};
+use sea_orm::{ConnectionTrait, Database, EntityTrait, PaginatorTrait, Schema};
 pub use sea_orm::DatabaseConnection;
+use std::path::PathBuf;
 use std::time::Duration;
+use tracing::info;
 
 use crate::ai::client::GeminiClient;
 use crate::config::Config;
 use crate::handlers::ws::WsHub;
+use crate::models;
 use crate::services::filestore::FileStoreService;
 use crate::sync::engine::SyncEngine;
 use crate::utils::identity::ServerIdentity;
@@ -20,6 +23,8 @@ pub struct AppState {
     pub setup_password: Option<String>,
     /// Server Ed25519 identity for device pairing QR codes
     pub server_identity: ServerIdentity,
+    /// Embedded PostgreSQL instance — must stay alive for the process lifetime
+    pub _embedded_pg: Option<postgresql_embedded::PostgreSQL>,
 }
 
 pub async fn connect(database_url: &str) -> Result<DatabaseConnection, sea_orm::DbErr> {
@@ -31,6 +36,85 @@ pub async fn connect(database_url: &str) -> Result<DatabaseConnection, sea_orm::
         .max_lifetime(Duration::from_secs(8));
 
     Database::connect(opt).await
+}
+
+/// Start an embedded PostgreSQL instance. Returns the handle (must be kept alive) and the connection URL.
+pub async fn start_embedded() -> Result<(postgresql_embedded::PostgreSQL, String), Box<dyn std::error::Error>> {
+    use postgresql_embedded::Settings;
+
+    info!("No DATABASE_URL set — starting embedded PostgreSQL...");
+
+    let data_dir = PathBuf::from("./data/pg");
+    std::fs::create_dir_all(&data_dir)?;
+
+    let mut settings = Settings::default();
+    settings.temporary = false;
+    settings.data_dir = std::fs::canonicalize(&data_dir)?;
+    settings.port = 5433;
+    settings.username = "eckwms".to_string();
+    settings.password = "eckwms".to_string();
+
+    let mut pg = postgresql_embedded::PostgreSQL::new(settings);
+
+    info!("Embedded PG: setting up (first run downloads ~100MB)...");
+    pg.setup().await?;
+
+    info!("Embedded PG: starting on port 5433...");
+    pg.start().await?;
+
+    let db_name = "eckwms";
+    if !pg.database_exists(db_name).await? {
+        info!("Embedded PG: creating database '{}'", db_name);
+        pg.create_database(db_name).await?;
+    }
+
+    let url = pg.settings().url(db_name);
+    info!("Embedded PG: ready at {}", url);
+
+    Ok((pg, url))
+}
+
+/// Create all tables from sea-orm entity definitions (IF NOT EXISTS).
+pub async fn create_schema(db: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
+    let builder = db.get_database_backend();
+    let schema = Schema::new(builder);
+
+    // Helper macro to avoid repetition
+    macro_rules! create_table_if_not_exists {
+        ($entity:path) => {
+            let mut stmt = schema.create_table_from_entity($entity);
+            db.execute(builder.build(
+                stmt.if_not_exists()
+            )).await?;
+        };
+    }
+
+    info!("Creating schema tables (if not exists)...");
+    create_table_if_not_exists!(models::user::Entity);
+    create_table_if_not_exists!(models::product::Entity);
+    create_table_if_not_exists!(models::product_alias::Entity);
+    create_table_if_not_exists!(models::location::Entity);
+    create_table_if_not_exists!(models::quant::Entity);
+    create_table_if_not_exists!(models::checksum::Entity);
+    create_table_if_not_exists!(models::picking::Entity);
+    create_table_if_not_exists!(models::move_line::Entity);
+    create_table_if_not_exists!(models::rack::Entity);
+    create_table_if_not_exists!(models::partner::Entity);
+    create_table_if_not_exists!(models::file_resource::Entity);
+    create_table_if_not_exists!(models::attachment::Entity);
+    create_table_if_not_exists!(models::delivery_carrier::Entity);
+    create_table_if_not_exists!(models::stock_picking_delivery::Entity);
+    create_table_if_not_exists!(models::delivery_tracking::Entity);
+    create_table_if_not_exists!(models::sync_history::Entity);
+    create_table_if_not_exists!(models::order::Entity);
+    create_table_if_not_exists!(models::device_intake::Entity);
+    create_table_if_not_exists!(models::inventory_discrepancy::Entity);
+    create_table_if_not_exists!(models::document::Entity);
+    create_table_if_not_exists!(models::mesh_node::Entity);
+    create_table_if_not_exists!(models::registered_device::Entity);
+    info!("Schema creation complete.");
+
+    Ok(())
 }
 
 use crate::models::user;
