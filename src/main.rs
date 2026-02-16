@@ -215,6 +215,9 @@ async fn main() {
         .route("/admin/devices/:id/home", put(handlers::device::update_device_home))
         .route("/admin/devices/:id", delete(handlers::device::delete_device))
         .route("/admin/devices/:id/restore", post(handlers::device::restore_device))
+        // Admin User Management
+        .route("/admin/users", get(handlers::admin_users::list_users).post(handlers::admin_users::create_user))
+        .route("/admin/users/:id", put(handlers::admin_users::update_user).delete(handlers::admin_users::delete_user))
         .layer(from_fn_with_state(
             app_state.clone(),
             middleware::auth::auth_middleware,

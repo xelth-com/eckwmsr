@@ -14,3 +14,4 @@ pub mod mesh;
 pub mod pairing;
 pub mod device;
 pub mod ws;
+pub mod admin_users;

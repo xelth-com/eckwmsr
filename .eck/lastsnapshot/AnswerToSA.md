@@ -1,41 +1,31 @@
-# PDA Device Pairing — Deployed & Verified
+# Admin User Management API — Implementation Report
 
-## Deployment
+## What was done
+Implemented the missing Admin User CRUD API that the dashboard frontend (`/dashboard/users`) expects.
 
-- Pushed code to GitHub, pulled on server (`antigravity`)
-- Built release binary: `cargo build --release` (1m 59s on ARM64)
-- Restarted `eckwmsr.service`
-- Server identity auto-generated: `.eck/server_identity.json`
+## Changes
 
-## Verification Results
+### New file: `src/handlers/admin_users.rs`
+- **GET /api/admin/users** — Lists all non-deleted users, returns `SafeUser` DTO (never exposes password/pin hashes)
+- **POST /api/admin/users** — Creates user with bcrypt-hashed password, validates required fields, returns 201
+- **PUT /api/admin/users/:id** — Partial update (name, role, email, pin, isActive, password), skips empty strings
+- **DELETE /api/admin/users/:id** — Soft delete via `deleted_at` timestamp (matches Go behavior)
 
-| Test | Result |
-|------|--------|
-| `GET /E/health` | 200 OK |
-| Server identity generated | YES (`.eck/server_identity.json` created) |
-| `GET /E/api/internal/pairing-qr` | 200, 4198 bytes PNG |
-| `GET /E/api/admin/devices` | 200, returns 2 existing devices (Ranger2, SM-N770F) |
-| `POST /E/api/internal/register-device` (invalid sig) | 403 Forbidden (correct rejection) |
-| Startup log: identity loaded | `Server identity loaded, public key: oeUS8Xid...` |
-| Heartbeat active | mesh_id: 582f3791c91bfc91 |
+### Modified: `src/handlers/mod.rs`
+- Added `pub mod admin_users;`
 
-## All endpoints operational
+### Modified: `src/main.rs`
+- Registered routes under protected API group:
+  - `/admin/users` (GET + POST)
+  - `/admin/users/:id` (PUT + DELETE)
 
-### Public
-- `POST /E/api/internal/register-device` — Ed25519 signature verification working
+## Key decisions
+- Soft delete matching Go version (sets `deleted_at` instead of row removal)
+- All queries filter `deleted_at IS NULL` to hide soft-deleted users
+- `SafeUser` DTO includes `hasPin` (computed), `preferredLanguage` to match Go response shape
+- Create returns HTTP 201 (not 200) matching Go behavior
+- Duplicate key errors return 409 Conflict
 
-### Protected
-- `GET /E/api/internal/pairing-qr` — QR PNG generation working
-- `GET /E/api/admin/devices` — Returns existing devices with correct JSON shape
-- `PUT /E/api/admin/devices/:id/status` — Ready
-- `PUT /E/api/admin/devices/:id/home` — Ready
-- `DELETE /E/api/admin/devices/:id` — Ready
-- `POST /E/api/admin/devices/:id/restore` — Ready
-
-## Frontend
-
-SvelteKit frontend rebuilt and deployed. Devices page at `/E/dashboard/devices`.
-
-## Next step
-
-Test full pairing flow with Android PDA: scan QR → register → approve → get JWT token.
+## Verification
+- `cargo check` passes with zero errors
+- `cargo build` compiles successfully (binary write blocked by running process — not a code issue)
