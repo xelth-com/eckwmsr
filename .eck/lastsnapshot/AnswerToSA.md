@@ -28,3 +28,6 @@ All fields parsed: tracking_number, hwb_number, product_type, pickup/delivery ad
 
 ## No fixes needed
 The existing OPAL fetch logic in `scraper/server.js` handled the frameset architecture correctly.
+
+
+[SYSTEM: EMBEDDED]
