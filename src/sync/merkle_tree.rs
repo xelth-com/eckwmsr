@@ -25,7 +25,7 @@ impl MerkleNode {
 }
 
 /// Request payload for Merkle comparison
-#[derive(serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct MerkleRequest {
     pub entity_type: String,
     pub level: u8,
@@ -137,24 +137,29 @@ pub fn compute_root_hash(buckets: &BTreeMap<String, String>) -> String {
     hex::encode(hasher.finalize())
 }
 
-/// Compare local tree with remote tree response.
-/// Returns (need_from_remote, need_to_push) bucket keys.
+/// Compare two sets of bucket/entity hashes.
+/// Returns (need_from_remote, need_to_push) keys.
 pub fn compare_trees(
-    local_buckets: &BTreeMap<String, String>,
-    remote_buckets: &HashMap<String, String>,
+    local: &BTreeMap<String, String>,
+    remote: &BTreeMap<String, String>,
 ) -> (Vec<String>, Vec<String>) {
     let mut need_from_remote = Vec::new();
     let mut need_to_push = Vec::new();
 
-    for (r_key, r_hash) in remote_buckets {
-        match local_buckets.get(r_key) {
+    for (r_key, r_hash) in remote {
+        match local.get(r_key) {
             Some(l_hash) if l_hash == r_hash => {}
-            _ => need_from_remote.push(r_key.clone()),
+            Some(_) => {
+                // Both have it but different hash
+                need_from_remote.push(r_key.clone());
+                need_to_push.push(r_key.clone());
+            }
+            None => need_from_remote.push(r_key.clone()),
         }
     }
 
-    for l_key in local_buckets.keys() {
-        if !remote_buckets.contains_key(l_key) {
+    for l_key in local.keys() {
+        if !remote.contains_key(l_key) {
             need_to_push.push(l_key.clone());
         }
     }
@@ -202,7 +207,7 @@ mod tests {
         local.insert("b".into(), "hash2".into());
         local.insert("c".into(), "hash3".into());
 
-        let mut remote = HashMap::new();
+        let mut remote = BTreeMap::new();
         remote.insert("a".into(), "hash1".into());
         remote.insert("b".into(), "changed".into());
         remote.insert("d".into(), "hash4".into());
@@ -211,6 +216,7 @@ mod tests {
         assert!(need_from_remote.contains(&"b".to_string()));
         assert!(need_from_remote.contains(&"d".to_string()));
         assert!(need_to_push.contains(&"c".to_string()));
+        assert!(need_to_push.contains(&"b".to_string())); // both have "b" but different
         assert!(!need_to_push.contains(&"a".to_string()));
     }
 

@@ -24,13 +24,13 @@ pub async fn merkle_handler(
 
 // --- PULL ---
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct PullRequest {
     pub entity_type: String,
     pub ids: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct PullResponse {
     pub entity_type: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -94,7 +94,7 @@ pub async fn pull_handler(
 
 // --- PUSH ---
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct PushPayload {
     #[serde(default)]
     pub products: Vec<product::Model>,

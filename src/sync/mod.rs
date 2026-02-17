@@ -4,3 +4,4 @@ pub mod relay_client;
 pub mod engine;
 pub mod merkle_tree;
 pub mod conflict_resolver;
+pub mod mesh_client;

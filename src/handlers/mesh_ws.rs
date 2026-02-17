@@ -6,15 +6,17 @@ use axum::{
     response::IntoResponse,
 };
 use futures_util::{SinkExt, StreamExt};
+use sea_orm::EntityTrait;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
 use tokio::sync::broadcast;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::db::AppState;
+use crate::models::mesh_node;
 
 /// Signals exchanged between mesh nodes
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,12 +146,40 @@ async fn handle_mesh_socket(socket: WebSocket, peer_id: String, state: Arc<AppSt
                                 info!("Mesh WS: PING from {}", peer_id_recv);
                             }
                             "UPDATE" => {
+                                let et = signal.entity_type.clone().unwrap_or_default();
                                 info!(
-                                    "Mesh WS: UPDATE from {} — {:?}/{:?}",
-                                    peer_id_recv, signal.entity_type, signal.entity_id
+                                    "Mesh WS: UPDATE from {} — {}",
+                                    peer_id_recv, et
                                 );
                                 // Re-broadcast to other peers
                                 state_read.mesh_hub.broadcast(signal);
+
+                                // Trigger sync with this peer
+                                if !et.is_empty() {
+                                    let pid = peer_id_recv.clone();
+                                    let sync_state = state_read.clone();
+                                    let entity = et.clone();
+                                    tokio::spawn(async move {
+                                        // Look up peer's base_url from mesh_nodes
+                                        if let Ok(Some(node)) = mesh_node::Entity::find_by_id(&pid)
+                                            .one(&sync_state.db)
+                                            .await
+                                        {
+                                            if !node.base_url.is_empty() {
+                                                if let Err(e) = sync_state
+                                                    .sync_engine
+                                                    .sync_with_peer(&node.base_url, &entity)
+                                                    .await
+                                                {
+                                                    tracing::error!(
+                                                        "Mesh sync with {} failed: {}",
+                                                        pid, e
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    });
+                                }
                             }
                             _ => {}
                         }
