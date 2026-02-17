@@ -27,7 +27,13 @@ pub struct PairingResponse {
     pub instance_id: String,
     pub instance_name: String,
     pub relay_url: String,
-    pub sync_network_key: Option<String>,
+}
+
+/// The approval payload containing the network key, sent from Host to Client
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PairingApproval {
+    pub host_instance_id: String,
+    pub network_key: String,
 }
 
 pub struct PairingService {
@@ -155,7 +161,6 @@ impl PairingService {
             instance_id: self.instance_id.clone(),
             instance_name: self.instance_name.clone(),
             relay_url: self.relay_url.clone(),
-            sync_network_key: None, // Client doesn't send network key yet
         };
 
         let temp_security = SecurityLayer::new(SyncNodeRole::Peer, &hex::encode(&enc_key));
@@ -216,6 +221,73 @@ impl PairingService {
             response.instance_id
         );
         Ok(Some(response))
+    }
+
+    /// Host: Sends the approved network key to the Client via the relay
+    pub async fn send_approval(&self, code: &str, network_key: &str) -> Result<()> {
+        let clean_code = code.replace('-', "");
+        let (routing_id, enc_key) = Self::derive_keys(&clean_code, "approval");
+
+        let approval = PairingApproval {
+            host_instance_id: self.instance_id.clone(),
+            network_key: network_key.to_string(),
+        };
+
+        let temp_security = SecurityLayer::new(SyncNodeRole::Peer, &hex::encode(&enc_key));
+
+        let mut vc = VectorClock::new();
+        vc.increment(&self.instance_id);
+
+        let metadata = EntityMetadata {
+            entity_id: routing_id.clone(),
+            entity_type: "pairing_approval".to_string(),
+            version: 1,
+            updated_at: Utc::now(),
+            source: "pairing".to_string(),
+            source_priority: 0,
+            instance_id: self.instance_id.clone(),
+            device_id: None,
+            vector_clock: vc,
+        };
+
+        let packet = temp_security
+            .encrypt_packet(&metadata, &approval)
+            .map_err(|e| anyhow!("Failed to encrypt approval: {}", e))?;
+
+        self.relay
+            .push_packet(&routing_id, &packet, Some(PAIRING_TTL_SECONDS))
+            .await
+            .map_err(|e| anyhow!("Failed to push approval to relay: {}", e))?;
+
+        info!("Pairing: Sent approval on channel {}", &routing_id[..12]);
+        Ok(())
+    }
+
+    /// Client: Receives the approval containing the network key
+    pub async fn receive_approval(&self, code: &str) -> Result<PairingApproval> {
+        let clean_code = code.replace('-', "");
+        let (routing_id, enc_key) = Self::derive_keys(&clean_code, "approval");
+        let temp_security = SecurityLayer::new(SyncNodeRole::Peer, &hex::encode(&enc_key));
+
+        let packets = self
+            .relay
+            .pull_packets_for(&routing_id)
+            .await
+            .map_err(|e| anyhow!("Failed to pull approval from relay: {}", e))?;
+
+        if packets.is_empty() {
+            return Err(anyhow!("No approval packet yet"));
+        }
+
+        let approval: PairingApproval = temp_security
+            .decrypt_packet(&packets[0])
+            .map_err(|e| anyhow!("Failed to decrypt approval: {}", e))?;
+
+        info!(
+            "Pairing: Received approval from host '{}'",
+            approval.host_instance_id
+        );
+        Ok(approval)
     }
 
     /// Derives a routing ID (used as target_instance_id on relay) and

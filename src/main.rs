@@ -168,6 +168,7 @@ async fn main() {
         setup_password,
         server_identity,
         _embedded_pg: embedded_pg,
+        pairing_sessions: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
     });
 
     // Start heartbeat background task (every 5 minutes)

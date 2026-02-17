@@ -1,7 +1,10 @@
 use sea_orm::{ConnectionTrait, Database, EntityTrait, PaginatorTrait, Schema};
 pub use sea_orm::DatabaseConnection;
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 use tracing::info;
 
 use crate::ai::client::GeminiClient;
@@ -11,6 +14,16 @@ use crate::models;
 use crate::services::filestore::FileStoreService;
 use crate::sync::engine::SyncEngine;
 use crate::utils::identity::ServerIdentity;
+
+/// Temporary state for a pairing session waiting for user approval
+#[derive(Clone)]
+pub struct PairingSession {
+    pub code: String,
+    pub remote_instance_id: String,
+    pub remote_instance_name: String,
+    pub remote_relay_url: String,
+    pub created_at: std::time::Instant,
+}
 
 pub struct AppState {
     pub db: DatabaseConnection,
@@ -25,6 +38,8 @@ pub struct AppState {
     pub server_identity: ServerIdentity,
     /// Embedded PostgreSQL instance — must stay alive for the process lifetime
     pub _embedded_pg: Option<postgresql_embedded::PostgreSQL>,
+    /// Active pairing sessions waiting for approval (keyed by code)
+    pub pairing_sessions: Arc<RwLock<HashMap<String, PairingSession>>>,
 }
 
 pub async fn connect(database_url: &str) -> Result<DatabaseConnection, sea_orm::DbErr> {

@@ -1,44 +1,34 @@
-# Embedded PostgreSQL — Implementation Report
+# Phase 12: Server Pairing System — Completion Report
 
 ## What was done
-Added embedded PostgreSQL support via `postgresql_embedded` crate. The server now starts without any external database dependency.
-
-## ENV Switch Logic
-- `DATABASE_URL` **set** → uses external PostgreSQL (production mode, same as before)
-- `DATABASE_URL` **not set** (default) → starts embedded PostgreSQL on port 5433, auto-creates `eckwms` database and all tables
+Completed the Server-to-Server Pairing System with secure key exchange and session state management.
 
 ## Changes
 
-### `Cargo.toml`
-- Added `postgresql_embedded = { version = "0.20", features = ["tokio"] }`
-
-### `src/config.rs`
-- `DATABASE_URL` default changed from `postgres://...` to empty string (triggers embedded mode)
-
 ### `src/db.rs`
-- Added `start_embedded()` — configures and starts embedded PG with persistent data dir (`./data/pg/`)
-- Added `create_schema()` — uses `sea_orm::Schema::create_table_from_entity()` for all 22 entities with `IF NOT EXISTS`
-- `AppState` now holds `_embedded_pg: Option<PostgreSQL>` to keep the PG process alive
+- Added `PairingSession` struct (code, remote_instance_id, remote_instance_name, remote_relay_url, created_at)
+- Added `pairing_sessions: Arc<RwLock<HashMap<String, PairingSession>>>` to `AppState`
 
 ### `src/main.rs`
-- At startup: checks if `database_url` is empty → calls `start_embedded()`, stores handle in `AppState`
-- After connect: if embedded mode, calls `create_schema()` to ensure tables exist
+- Initialized `pairing_sessions` in `AppState` construction
 
-### `.gitignore`
-- Added `data/` to exclude embedded PG data directory
+### `src/services/pairing.rs`
+- Added `PairingApproval` struct (host_instance_id, network_key)
+- Removed `sync_network_key` from `PairingResponse` (was unused placeholder)
+- Added `send_approval()` — Host encrypts SYNC_NETWORK_KEY with code-derived key and pushes to relay "approval" channel
+- Added `receive_approval()` — Client pulls and decrypts the approval packet
 
-## First run behavior
-1. Downloads PostgreSQL binaries (~100MB, cached at `~/.theseus/postgresql/`)
-2. Initializes data directory at `./data/pg/`
-3. Starts PG on port 5433
-4. Creates `eckwms` database
-5. Creates all 22 tables
-6. Seeds setup account (admin@setup.local)
+### `src/handlers/pairing.rs`
+- `check_pairing`: Now stores discovered client info in `pairing_sessions` memory map
+- `approve_pairing`: Validates session exists + instance_id match, sends encrypted network key via relay, saves peer as mesh node, cleans up session
+- `finalize_pairing`: Polls for approval packet, returns "waiting" if not yet approved, returns network_key + host info when approved, saves host as master mesh node
 
-## Subsequent runs
-- Skips download (cached)
-- Starts PG in ~2-5 seconds
-- Tables already exist (IF NOT EXISTS), data persists
+## Pairing Flow (complete)
+1. **Host** calls `POST /api/pairing/host` → gets code "XXX-XXX"
+2. **Client** calls `POST /api/pairing/connect` with code → finds offer, sends response
+3. **Host** polls `POST /api/pairing/check` → discovers client, stores session
+4. **Host** calls `POST /api/pairing/approve` → encrypts SYNC_NETWORK_KEY, pushes to relay
+5. **Client** polls `POST /api/pairing/finalize` → receives key, saves host node
 
 ## Verification
 - `cargo check` passes with zero errors
