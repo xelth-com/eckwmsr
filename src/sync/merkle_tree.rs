@@ -1,8 +1,11 @@
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 
+use crate::models::checksum;
+
 /// Represents a node in the Merkle Tree
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MerkleNode {
     pub level: u8,
     pub key: String,
@@ -18,6 +21,95 @@ impl MerkleNode {
             hash: String::new(),
             children: BTreeMap::new(),
         }
+    }
+}
+
+/// Request payload for Merkle comparison
+#[derive(serde::Deserialize)]
+pub struct MerkleRequest {
+    pub entity_type: String,
+    pub level: u8,
+    pub bucket: Option<String>,
+}
+
+/// Service to build Merkle Trees from entity_checksums table
+pub struct MerkleTreeService<'a> {
+    db: &'a DatabaseConnection,
+}
+
+impl<'a> MerkleTreeService<'a> {
+    pub fn new(db: &'a DatabaseConnection) -> Self {
+        Self { db }
+    }
+
+    /// Get tree state at given level
+    pub async fn get_state(&self, req: &MerkleRequest) -> Result<MerkleNode, String> {
+        match req.level {
+            0 => self.get_root(&req.entity_type).await,
+            1 if req.bucket.is_some() => {
+                self.get_bucket(&req.entity_type, req.bucket.as_ref().unwrap())
+                    .await
+            }
+            _ => Err("Invalid merkle request: level must be 0 or 1 with bucket".to_string()),
+        }
+    }
+
+    /// Level 0: root node with bucket hashes as children
+    async fn get_root(&self, entity_type: &str) -> Result<MerkleNode, String> {
+        let checksums = checksum::Entity::find()
+            .filter(checksum::Column::EntityType.eq(entity_type))
+            .all(self.db)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let mut bucket_items: HashMap<String, BTreeMap<String, String>> = HashMap::new();
+
+        for cs in checksums {
+            let b_key = get_bucket_index(&cs.entity_id);
+            bucket_items
+                .entry(b_key)
+                .or_default()
+                .insert(cs.entity_id, cs.full_hash);
+        }
+
+        let mut buckets: BTreeMap<String, String> = BTreeMap::new();
+        for (b_key, items) in &bucket_items {
+            buckets.insert(b_key.clone(), compute_bucket_hash(items));
+        }
+
+        let root_hash = compute_root_hash(&buckets);
+
+        Ok(MerkleNode {
+            level: 0,
+            key: "root".to_string(),
+            hash: root_hash,
+            children: buckets,
+        })
+    }
+
+    /// Level 1: single bucket with entity_id -> hash as children
+    async fn get_bucket(&self, entity_type: &str, bucket: &str) -> Result<MerkleNode, String> {
+        let checksums = checksum::Entity::find()
+            .filter(checksum::Column::EntityType.eq(entity_type))
+            .all(self.db)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let mut items: BTreeMap<String, String> = BTreeMap::new();
+        for cs in checksums {
+            if get_bucket_index(&cs.entity_id) == *bucket {
+                items.insert(cs.entity_id, cs.full_hash);
+            }
+        }
+
+        let hash = compute_bucket_hash(&items);
+
+        Ok(MerkleNode {
+            level: 1,
+            key: bucket.to_string(),
+            hash,
+            children: items,
+        })
     }
 }
 
@@ -54,15 +146,13 @@ pub fn compare_trees(
     let mut need_from_remote = Vec::new();
     let mut need_to_push = Vec::new();
 
-    // What we need from remote (mismatched or missing locally)
     for (r_key, r_hash) in remote_buckets {
         match local_buckets.get(r_key) {
-            Some(l_hash) if l_hash == r_hash => {} // identical
+            Some(l_hash) if l_hash == r_hash => {}
             _ => need_from_remote.push(r_key.clone()),
         }
     }
 
-    // What remote is missing (we have but they don't)
     for l_key in local_buckets.keys() {
         if !remote_buckets.contains_key(l_key) {
             need_to_push.push(l_key.clone());
@@ -113,9 +203,9 @@ mod tests {
         local.insert("c".into(), "hash3".into());
 
         let mut remote = HashMap::new();
-        remote.insert("a".into(), "hash1".into()); // same
-        remote.insert("b".into(), "changed".into()); // different
-        remote.insert("d".into(), "hash4".into()); // remote only
+        remote.insert("a".into(), "hash1".into());
+        remote.insert("b".into(), "changed".into());
+        remote.insert("d".into(), "hash4".into());
 
         let (need_from_remote, need_to_push) = compare_trees(&local, &remote);
         assert!(need_from_remote.contains(&"b".to_string()));

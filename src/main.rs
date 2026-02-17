@@ -272,7 +272,10 @@ async fn main() {
         .route("/nodes", get(handlers::mesh::list_nodes))
         .route("/status", get(handlers::mesh::get_status))
         .route("/relay-status", get(handlers::mesh::get_relay_status))
-        .route("/ws", get(handlers::mesh_ws::mesh_ws_handler));
+        .route("/ws", get(handlers::mesh_ws::mesh_ws_handler))
+        .route("/merkle", post(handlers::mesh_sync::merkle_handler))
+        .route("/pull", post(handlers::mesh_sync::pull_handler))
+        .route("/push", post(handlers::mesh_sync::push_handler));
 
     // Build the main router — strict /E prefix for microservice deployment
     let app = Router::new()

@@ -17,3 +17,4 @@ pub mod ws;
 pub mod admin_users;
 pub mod config;
 pub mod mesh_ws;
+pub mod mesh_sync;

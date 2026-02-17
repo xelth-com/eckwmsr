@@ -1,51 +1,35 @@
-# Phase 13.1: Mesh WebSocket Infrastructure
+# Phase 13.2: Merkle Tree Sync Logic & API
 
 ## What was done
-Implemented server-to-server WebSocket signaling for live mesh sync.
+Implemented Merkle tree-based sync API for efficient O(log n) data difference detection between mesh servers.
 
 ## Changes
 
-### New: `src/handlers/mesh_ws.rs`
-- **`MeshHub`** — manages peer connections via `broadcast::channel`:
-  - `broadcast(signal)` — send to all connected peers
-  - `notify_update(sender, entity_type, entity_id)` — convenience for entity change signals
-  - `register/unregister` — track connected peers
-  - `subscribe()` — get a receiver for hub signals
-  - `peer_count()` — monitoring
-- **`MeshSignal`** — JSON message protocol:
-  - `type`: "HELLO", "UPDATE", "PING"
-  - `senderId`: originating instance
-  - `entityType` / `entityId`: optional, for UPDATE signals
-- **`mesh_ws_handler`** — Axum WebSocket handler at `/E/mesh/ws?instance_id=...`:
-  - Accepts connection, sends HELLO
-  - Bidirectional: forwards hub broadcasts to peer, reads incoming signals from peer
-  - Re-broadcasts received UPDATE signals to other peers
-  - Properly splits socket with `futures_util::{SinkExt, StreamExt}`
-  - Uses `tokio::select!` for clean shutdown
+### Updated: `src/sync/merkle_tree.rs`
+- Added `MerkleRequest` struct (entity_type, level, bucket)
+- Added `MerkleTreeService` — builds Merkle trees from `entity_checksums` table via SeaORM
+  - `get_root()` — Level 0: fetches all checksums, groups by bucket, returns bucket hashes
+  - `get_bucket()` — Level 1: returns individual entity_id -> hash pairs for a specific bucket
+- Added Serialize/Deserialize derives to `MerkleNode` for JSON API
 
-### Updated: `src/db.rs`
-- Added `mesh_hub: MeshHub` to `AppState`
+### New: `src/handlers/mesh_sync.rs`
+- `POST /mesh/merkle` — Returns Merkle tree state for comparison (level 0 = root, level 1 = bucket)
+- `POST /mesh/pull` — Fetch specific entities by ID (product, location, shipment)
+- `POST /mesh/push` — Apply incoming entities with upsert (ON CONFLICT UPDATE)
 
 ### Updated: `src/handlers/mod.rs`
-- Added `pub mod mesh_ws;`
+- Added `pub mod mesh_sync;`
 
 ### Updated: `src/main.rs`
-- Initialized `MeshHub::new()`
-- Added to `AppState` construction
-- Registered `/ws` route under `/E/mesh` nest (public, no JWT)
+- Registered `/merkle`, `/pull`, `/push` routes under `/E/mesh` nest
 
-## Endpoint
-`GET /E/mesh/ws?instance_id=<peer_instance_id>` — WebSocket upgrade
-
-## Signal Protocol
-```json
-{"type":"HELLO","senderId":"rust_dev_node"}
-{"type":"UPDATE","senderId":"rust_dev_node","entityType":"product","entityId":"123"}
-{"type":"PING","senderId":"rust_dev_node"}
-```
+## Sync Protocol
+1. Server A calls `POST /mesh/merkle` on Server B with `{entity_type: "product", level: 0}`
+2. Compare root hashes — if equal, in sync. If not, compare bucket hashes.
+3. For mismatched buckets, call level 1 to get individual entity hashes.
+4. Call `/mesh/pull` with IDs of entities that differ.
+5. Call `/mesh/push` to send entities the other side is missing.
 
 ## Verification
 - `cargo check` — zero errors
-
-
-[SYSTEM: EMBEDDED]
+- `cargo test` — 36 tests pass (including existing Merkle tree tests)
