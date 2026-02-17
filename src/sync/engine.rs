@@ -40,12 +40,74 @@ impl SyncEngine {
         &self.instance_id
     }
 
-    /// Returns a clone of the relay client for use in other services
     pub fn relay_client(&self) -> RelayClient {
         self.relay.clone()
     }
 
-    /// Pulls pending packets from the blind relay, decrypts them, and upserts into local DB.
+    // --- Shared upsert methods (used by both Relay and Mesh paths) ---
+
+    async fn upsert_product(&self, p: product::Model) -> Result<(), DbErr> {
+        let am = p.into_active_model();
+        product::Entity::insert(am)
+            .on_conflict(
+                OnConflict::column(product::Column::Id)
+                    .update_columns([
+                        product::Column::Name,
+                        product::Column::Barcode,
+                        product::Column::DefaultCode,
+                        product::Column::Active,
+                        product::Column::ListPrice,
+                        product::Column::StandardPrice,
+                        product::Column::Weight,
+                        product::Column::Volume,
+                        product::Column::Type,
+                        product::Column::WriteDate,
+                        product::Column::LastSyncedAt,
+                    ])
+                    .to_owned(),
+            )
+            .exec(&self.db)
+            .await?;
+        Ok(())
+    }
+
+    async fn upsert_location(&self, l: location::Model) -> Result<(), DbErr> {
+        let am = l.into_active_model();
+        location::Entity::insert(am)
+            .on_conflict(
+                OnConflict::column(location::Column::Id)
+                    .update_columns([
+                        location::Column::Name,
+                        location::Column::CompleteName,
+                        location::Column::Barcode,
+                        location::Column::Usage,
+                        location::Column::LocationId,
+                        location::Column::Active,
+                        location::Column::LastSyncedAt,
+                        location::Column::UpdatedAt,
+                    ])
+                    .to_owned(),
+            )
+            .exec(&self.db)
+            .await?;
+        Ok(())
+    }
+
+    async fn upsert_shipment(&self, s: stock_picking_delivery::Model) -> Result<(), DbErr> {
+        let am = s.into_active_model();
+        let _ = stock_picking_delivery::Entity::insert(am)
+            .on_conflict(
+                OnConflict::column(stock_picking_delivery::Column::Id)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec(&self.db)
+            .await;
+        Ok(())
+    }
+
+    // --- Relay pull ---
+
     pub async fn pull_and_apply(&self) -> Result<usize, String> {
         info!(
             "SyncEngine: Pulling packets from relay for instance: {}",
@@ -71,8 +133,8 @@ impl SyncEngine {
 
         for packet in packets {
             let result = match packet.entity_type.as_str() {
-                "product" => self.apply_product(&packet).await,
-                "location" => self.apply_location(&packet).await,
+                "product" => self.process_product_packet(&packet).await,
+                "location" => self.process_location_packet(&packet).await,
                 other => {
                     warn!("Unsupported entity type from relay: {}", other);
                     continue;
@@ -95,7 +157,7 @@ impl SyncEngine {
         Ok(applied)
     }
 
-    async fn apply_product(
+    async fn process_product_packet(
         &self,
         packet: &crate::models::sync_packet::EncryptedSyncPacket,
     ) -> Result<(), String> {
@@ -103,34 +165,26 @@ impl SyncEngine {
             .security
             .decrypt_packet(packet)
             .map_err(|e| format!("decrypt: {}", e))?;
-
-        let am = data.into_active_model();
-        product::Entity::insert(am)
-            .on_conflict(
-                OnConflict::column(product::Column::Id)
-                    .update_columns([
-                        product::Column::Name,
-                        product::Column::Barcode,
-                        product::Column::DefaultCode,
-                        product::Column::Active,
-                        product::Column::ListPrice,
-                        product::Column::StandardPrice,
-                        product::Column::Weight,
-                        product::Column::Volume,
-                        product::Column::Type,
-                        product::Column::WriteDate,
-                        product::Column::LastSyncedAt,
-                    ])
-                    .to_owned(),
-            )
-            .exec(&self.db)
+        self.upsert_product(data)
             .await
-            .map_err(|e| format!("upsert: {}", e))?;
-
-        Ok(())
+            .map_err(|e| format!("upsert: {}", e))
     }
 
-    /// Pushes a local entity to the blind relay for a specific target instance.
+    async fn process_location_packet(
+        &self,
+        packet: &crate::models::sync_packet::EncryptedSyncPacket,
+    ) -> Result<(), String> {
+        let data: location::Model = self
+            .security
+            .decrypt_packet(packet)
+            .map_err(|e| format!("decrypt: {}", e))?;
+        self.upsert_location(data)
+            .await
+            .map_err(|e| format!("upsert: {}", e))
+    }
+
+    // --- Relay push ---
+
     pub async fn push_entity<T: Serialize>(
         &self,
         target_instance: &str,
@@ -176,8 +230,8 @@ impl SyncEngine {
         Ok(())
     }
 
-    /// Orchestrate active sync with a peer node for a specific entity type.
-    /// Compares Merkle trees, then pulls/pushes only the differences.
+    // --- Mesh sync ---
+
     pub async fn sync_with_peer(&self, peer_url: &str, entity_type: &str) -> anyhow::Result<()> {
         info!(
             "SyncEngine: Starting active sync with {} for '{}'",
@@ -270,65 +324,15 @@ impl SyncEngine {
         &self,
         resp: crate::handlers::mesh_sync::PullResponse,
     ) -> anyhow::Result<()> {
-        use sea_orm::sea_query::OnConflict;
-
         for p in resp.products {
-            let am = p.into_active_model();
-            product::Entity::insert(am)
-                .on_conflict(
-                    OnConflict::column(product::Column::Id)
-                        .update_columns([
-                            product::Column::Name,
-                            product::Column::Barcode,
-                            product::Column::DefaultCode,
-                            product::Column::Active,
-                            product::Column::ListPrice,
-                            product::Column::StandardPrice,
-                            product::Column::Weight,
-                            product::Column::Volume,
-                            product::Column::Type,
-                            product::Column::WriteDate,
-                            product::Column::LastSyncedAt,
-                        ])
-                        .to_owned(),
-                )
-                .exec(&self.db)
-                .await?;
+            self.upsert_product(p).await?;
         }
-
         for l in resp.locations {
-            let am = l.into_active_model();
-            location::Entity::insert(am)
-                .on_conflict(
-                    OnConflict::column(location::Column::Id)
-                        .update_columns([
-                            location::Column::Name,
-                            location::Column::CompleteName,
-                            location::Column::Barcode,
-                            location::Column::Usage,
-                            location::Column::LocationId,
-                            location::Column::Active,
-                            location::Column::LastSyncedAt,
-                            location::Column::UpdatedAt,
-                        ])
-                        .to_owned(),
-                )
-                .exec(&self.db)
-                .await?;
+            self.upsert_location(l).await?;
         }
-
         for s in resp.shipments {
-            let am = s.into_active_model();
-            let _ = stock_picking_delivery::Entity::insert(am)
-                .on_conflict(
-                    OnConflict::column(stock_picking_delivery::Column::Id)
-                        .do_nothing()
-                        .to_owned(),
-                )
-                .exec(&self.db)
-                .await;
+            self.upsert_shipment(s).await?;
         }
-
         Ok(())
     }
 
@@ -341,6 +345,9 @@ impl SyncEngine {
         use sea_orm::{ColumnTrait, QueryFilter};
 
         let parsed_ids: Vec<i64> = ids.iter().filter_map(|s| s.parse().ok()).collect();
+        if parsed_ids.is_empty() {
+            return Ok(());
+        }
 
         let mut products = vec![];
         let mut locations = vec![];
@@ -369,38 +376,6 @@ impl SyncEngine {
         }
 
         client.push_entities(products, locations, shipments).await?;
-        Ok(())
-    }
-
-    async fn apply_location(
-        &self,
-        packet: &crate::models::sync_packet::EncryptedSyncPacket,
-    ) -> Result<(), String> {
-        let data: location::Model = self
-            .security
-            .decrypt_packet(packet)
-            .map_err(|e| format!("decrypt: {}", e))?;
-
-        let am = data.into_active_model();
-        location::Entity::insert(am)
-            .on_conflict(
-                OnConflict::column(location::Column::Id)
-                    .update_columns([
-                        location::Column::Name,
-                        location::Column::CompleteName,
-                        location::Column::Barcode,
-                        location::Column::Usage,
-                        location::Column::LocationId,
-                        location::Column::Active,
-                        location::Column::LastSyncedAt,
-                        location::Column::UpdatedAt,
-                    ])
-                    .to_owned(),
-            )
-            .exec(&self.db)
-            .await
-            .map_err(|e| format!("upsert: {}", e))?;
-
         Ok(())
     }
 }

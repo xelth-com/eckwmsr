@@ -1,54 +1,30 @@
-# Phase 13.3: Active Mesh Synchronization
+# Phase 14: Polish & Refactoring - Complete
 
-## What was done
-Implemented the full active sync pipeline: MeshClient for HTTP peer communication, SyncEngine.sync_with_peer for Merkle-based diff+pull+push, and WebSocket-triggered sync on UPDATE signals.
+## Changes Made
 
-## Changes
+### 1. Refactored `src/sync/engine.rs`
+- Extracted duplicate upsert logic into shared methods: `upsert_product()`, `upsert_location()`, `upsert_shipment()`
+- Both Relay pull (`process_product_packet`/`process_location_packet`) and Mesh pull (`apply_pull_response`) now call the same upsert methods
+- Removed redundant `use sea_orm::sea_query::OnConflict` import from `apply_pull_response`
+- Renamed `apply_product`/`apply_location` to `process_product_packet`/`process_location_packet` for clarity
+- Added early return in `perform_push` when `parsed_ids` is empty
+- File went from 406 lines to 381 lines with zero duplication
 
-### New: `src/sync/mesh_client.rs`
-- `MeshClient` — HTTP client for talking to peer mesh nodes:
-  - `get_merkle_root(entity_type)` → POST /E/mesh/merkle level 0
-  - `get_merkle_bucket(entity_type, bucket)` → POST /E/mesh/merkle level 1
-  - `pull_entities(entity_type, ids)` → POST /E/mesh/pull
-  - `push_entities(products, locations, shipments)` → POST /E/mesh/push
+### 2. Created `Dockerfile`
+- Multi-stage build: frontend (node:18-alpine) -> backend (rust:1.77-slim-bookworm) -> runtime (debian:bookworm-slim)
+- Dependency caching via dummy `main.rs` trick
+- Runtime includes only `ca-certificates` and `libssl3`
+- Exposes port 3210, sets `RUST_LOG=info`
 
-### Updated: `src/sync/engine.rs`
-- `sync_with_peer(peer_url, entity_type)` — full orchestration:
-  1. Fetch local + remote Merkle roots
-  2. If roots match → no sync needed (O(1) check)
-  3. Compare bucket hashes → find differing buckets
-  4. Drill into differing buckets → find specific entity IDs
-  5. Pull missing/changed entities from peer
-  6. Push local-only entities to peer
-- `apply_pull_response()` — upserts received products/locations/shipments
-- `perform_push()` — queries local DB and pushes to peer
+### 3. Created `.dockerignore`
+- Excludes `target/`, `data/`, `.eck/`, logs, node_modules, `.env`
 
-### Updated: `src/sync/merkle_tree.rs`
-- `compare_trees` now takes `BTreeMap, BTreeMap` (both sides same type)
-- Handles bidirectional diff: items present on both sides with different hashes go into both pull and push lists
-- `MerkleRequest` now derives `Serialize` for client usage
-
-### Updated: `src/handlers/mesh_ws.rs`
-- UPDATE signal handler now triggers `sync_with_peer` via `tokio::spawn`
-- Looks up peer's `base_url` from `mesh_nodes` table
-- Spawns async task so WebSocket handler isn't blocked
-
-### Updated: `src/handlers/mesh_sync.rs`
-- `PullRequest`, `PullResponse`, `PushPayload` now derive both Serialize + Deserialize
-
-### Updated: `src/sync/mod.rs`
-- Added `pub mod mesh_client;`
-
-## Data Flow
-```
-Peer A changes product → MeshHub.notify_update("product", "123")
-  → WebSocket sends UPDATE to Peer B
-  → Peer B receives UPDATE in mesh_ws handler
-  → Spawns sync_with_peer(peer_a_url, "product")
-  → Merkle root comparison → bucket diff → entity diff
-  → Pull changed products from A, Push local-only to A
-```
+### 4. Created `README.md`
+- Quick Start for both binary and Docker
+- Mesh Sync pairing instructions
+- AI features setup (Gemini API key)
+- Architecture overview
+- Development commands
 
 ## Verification
-- `cargo check` — zero errors
-- `cargo test` — 36 tests pass
+- `cargo check` passes with no new warnings

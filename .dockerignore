@@ -1,0 +1,8 @@
+target/
+data/
+.eck/
+**/*.log
+**/*.db
+web/node_modules
+web/.svelte-kit
+.env
