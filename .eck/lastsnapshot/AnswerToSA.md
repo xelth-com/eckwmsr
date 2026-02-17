@@ -1,36 +1,23 @@
-# Phase 14 Final: Odoo Client Wired into AppState
+# Task: Extract delivery scrapers to Node.js Playwright microservice
 
-## Changes Made
+## Status: DONE
 
-### 1. `src/db.rs` — Added `odoo_client` to AppState
-- New field: `pub odoo_client: Option<tokio::sync::Mutex<OdooClient>>`
-- Wrapped in `Mutex` because `authenticate()` takes `&mut self` (sets UID)
-- `None` when Odoo env vars not configured — zero overhead
+## Changes Applied
+1. **Created** `scraper/package.json` — Node.js package manifest (express + playwright)
+2. **Created** `scraper/server.js` — Express server on port 3211 with `/api/dhl/create` and `/api/opal/create` endpoints using Playwright
+3. **Removed** `thirtyfour = "0.35"` from `Cargo.toml`
+4. **Removed** `pub mod webdriver;` from `src/utils/mod.rs`
+5. **Deleted** `src/utils/webdriver.rs`
+6. **Rewrote** `src/services/delivery_dhl.rs` — now POSTs to `http://127.0.0.1:3211/api/dhl/create`
+7. **Rewrote** `src/services/delivery_opal.rs` — now POSTs to `http://127.0.0.1:3211/api/opal/create`
 
-### 2. `src/main.rs` — Passes OdooClient into AppState
-- Replaced `let _ = odoo_client` with `odoo_mutex` wrapping into `tokio::sync::Mutex`
-- Added `odoo_client: odoo_mutex` to AppState construction
+## Port
+Scraper microservice runs on **3211** (user request, changed from plan's 3005).
 
-### 3. `src/services/repair.rs` — Calls Odoo on intake
-- After saving `DeviceIntake`, checks `state.odoo_client`
-- If present: authenticates, calls `create_repair_order()`
-- If absent: logs "Not configured, skipping" (no-op)
-- Errors are logged but don't block the intake flow
+## Validation
+- `cargo check` passes with 0 errors, warnings only (pre-existing dead code)
 
-## Flow
+## Next Steps
 ```
-Android PDA -> intake_save event -> handlers/repair.rs
-  -> RepairService::process_intake()
-    -> Save DeviceIntake to local DB
-    -> Create ProductAlias (HWB <-> Serial)
-    -> If Odoo configured:
-         Lock mutex -> authenticate -> create_repair_order()
-    -> If not: log and skip
+cd scraper && npm install && npx playwright install chromium
 ```
-
-## Verification
-- `cargo check` — passes, no new warnings
-- `cargo test --lib` — 36 tests pass
-
-
-[SYSTEM: EMBEDDED]
