@@ -21,3 +21,6 @@ Scraper microservice runs on **3211** (user request, changed from plan's 3005).
 ```
 cd scraper && npm install && npx playwright install chromium
 ```
+
+
+[SYSTEM: EMBEDDED]

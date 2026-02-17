@@ -36,14 +36,14 @@ app.post('/api/dhl/create', (req, res) => {
 
         // Accept cookies if present
         try {
-            const cookieBtn = page.locator('#onetrust-accept-btn-handler');
+            const cookieBtn = page.locator('#onetrust-accept-btn-handler').first();
             await cookieBtn.waitFor({ state: 'visible', timeout: 3000 });
             await cookieBtn.click();
         } catch (e) { /* no cookie banner */ }
 
         // Click login trigger if needed
         try {
-            const loginTrigger = page.locator("button:has-text('Anmelden')");
+            const loginTrigger = page.locator("button:has-text('Anmelden')").first();
             await loginTrigger.waitFor({ state: 'visible', timeout: 3000 });
             await loginTrigger.click();
         } catch (e) { /* no trigger */ }
@@ -51,7 +51,7 @@ app.post('/api/dhl/create', (req, res) => {
         // Login
         await page.fill("input[type='email']", username);
         await page.fill("input[type='password']", password);
-        await page.click("button[type='submit']");
+        await page.locator("button[type='submit']").first().click();
         await page.waitForNavigation({ waitUntil: 'networkidle' });
 
         // Navigate to Shipment Details
@@ -64,8 +64,9 @@ app.post('/api/dhl/create', (req, res) => {
         await page.fill("input[id='receiver.plz']", receiver_address.zip || '');
         await page.fill("input[id='receiver.city']", receiver_address.city || '');
 
-        // Fill weight (German decimal comma)
-        const weightStr = parseFloat(weight).toString().replace('.', ',');
+        // Fill weight (German decimal comma, strictly formatted to 1 decimal place)
+        const weightVal = parseFloat(weight) || 1.0;
+        const weightStr = weightVal.toFixed(1).replace('.', ',');
         await page.fill("input[id='shipment-weight']", weightStr);
 
         // Submit
@@ -99,7 +100,7 @@ app.post('/api/opal/create', (req, res) => {
         // Login
         await page.fill("input[name='username']", username);
         await page.fill("input[type='password']", password);
-        await page.click("button[type='submit'], input[type='submit']");
+        await page.locator("input[type='submit'], button[type='submit']").first().click();
         await page.waitForLoadState('networkidle');
 
         // Click "Neuer Auftrag" in the top frame
@@ -121,25 +122,30 @@ app.post('/api/opal/create', (req, res) => {
             }
         };
 
+        // Combine street and house number into one field for OPAL
+        const senderStreet = `${sender_address.street || ''} ${sender_address.house_number || ''}`.trim();
+        const receiverStreet = `${receiver_address.street || ''} ${receiver_address.house_number || ''}`.trim();
+
         // Sender (index 0)
         await fillArrayField("input[name='address_name1[]']", 0, sender_address.name1);
-        await fillArrayField("input[name='address_str[]']", 0, sender_address.street);
+        await fillArrayField("input[name='address_str[]']", 0, senderStreet);
         await fillArrayField("input[name='address_plz[]']", 0, sender_address.zip);
         await fillArrayField("input[name='address_ort[]']", 0, sender_address.city);
 
         // Receiver (index 1)
         await fillArrayField("input[name='address_name1[]']", 1, receiver_address.name1);
-        await fillArrayField("input[name='address_str[]']", 1, receiver_address.street);
+        await fillArrayField("input[name='address_str[]']", 1, receiverStreet);
         await fillArrayField("input[name='address_plz[]']", 1, receiver_address.zip);
         await fillArrayField("input[name='address_ort[]']", 1, receiver_address.city);
 
         // Package details
-        const weightStr = parseFloat(weight).toString().replace('.', ',');
+        const weightVal = parseFloat(weight) || 1.0;
+        const weightStr = weightVal.toFixed(1).replace('.', ',');
         await mainFrame.fill("input#segewicht", weightStr);
         await mainFrame.fill("input#seclref", ref_number || order_number);
 
         // Submit
-        await mainFrame.click("input[type='submit'], button[type='submit']");
+        await mainFrame.locator("input[type='submit'], button[type='submit']").first().click();
         await page.waitForLoadState('networkidle');
         await page.waitForTimeout(2000);
 
