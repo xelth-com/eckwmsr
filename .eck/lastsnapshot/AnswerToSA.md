@@ -31,3 +31,6 @@ Android PDA -> intake_save event -> handlers/repair.rs
 ## Verification
 - `cargo check` — passes, no new warnings
 - `cargo test --lib` — 36 tests pass
+
+
+[SYSTEM: EMBEDDED]
