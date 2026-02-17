@@ -69,12 +69,30 @@ impl RepairService {
             }
         }
 
-        // Odoo sync: OdooClient is initialized in main.rs.
-        // Once wired into AppState, will call odoo.create_repair_order() here.
-        info!(
-            "Odoo Sync: Intake #{} saved, pending background sync",
-            inserted.id
-        );
+        // Odoo sync: create repair order if client is configured
+        if let Some(ref odoo_mutex) = state.odoo_client {
+            let mut odoo = odoo_mutex.lock().await;
+            // Authenticate on first use
+            if odoo.authenticate().await.is_ok() {
+                let description = format!(
+                    "Intake #{} — SN: {}, HWB: {}",
+                    inserted.id, serial_number, hwb_number
+                );
+                // product_id 0 = unknown; real mapping comes from barcode lookup
+                match odoo.create_repair_order(0, &serial_number, &description).await {
+                    Ok(repair_id) => {
+                        info!("Odoo: Created repair order #{} for intake #{}", repair_id, inserted.id);
+                    }
+                    Err(e) => {
+                        error!("Odoo: Failed to create repair order: {}", e);
+                    }
+                }
+            } else {
+                error!("Odoo: Authentication failed, skipping repair order creation");
+            }
+        } else {
+            info!("Odoo: Not configured, skipping repair order sync for intake #{}", inserted.id);
+        }
 
         Ok(())
     }

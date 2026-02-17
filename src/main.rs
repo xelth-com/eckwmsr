@@ -117,7 +117,7 @@ async fn main() {
         info!("Odoo: Not configured, repair sync disabled");
         None
     };
-    let _ = odoo_client; // Will be wired into RepairService/AppState in a future step
+    let odoo_mutex = odoo_client.map(|c| tokio::sync::Mutex::new(c));
 
     // Initialize File Store (CAS)
     let file_store = services::filestore::FileStoreService::new(".");
@@ -187,6 +187,7 @@ async fn main() {
         server_identity,
         _embedded_pg: embedded_pg,
         pairing_sessions: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+        odoo_client: odoo_mutex,
     });
 
     // Start heartbeat background task (every 5 minutes)

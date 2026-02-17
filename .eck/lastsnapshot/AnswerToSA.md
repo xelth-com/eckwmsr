@@ -1,38 +1,33 @@
-# Phase 14 (cont): Odoo Client & Integration Tests
+# Phase 14 Final: Odoo Client Wired into AppState
 
 ## Changes Made
 
-### 1. Created `src/services/odoo.rs`
-- `OdooClient` with JSON-RPC authentication (`/jsonrpc` common.login)
-- `execute_kw()` for generic Odoo model method calls
-- `create_repair_order()` — looks up stock.lot by serial, creates repair.order
-- `search_read()` helper for domain queries with field/limit kwargs
-- Fixed architect's bug: replaced `interface::Value` alias with direct `serde_json::Value`
+### 1. `src/db.rs` — Added `odoo_client` to AppState
+- New field: `pub odoo_client: Option<tokio::sync::Mutex<OdooClient>>`
+- Wrapped in `Mutex` because `authenticate()` takes `&mut self` (sets UID)
+- `None` when Odoo env vars not configured — zero overhead
 
-### 2. Updated `src/config.rs`
-- Added `OdooConfig` struct (url, database, username, password)
-- Config loads from `ODOO_URL`, `ODOO_DB`, `ODOO_USER`, `ODOO_PASSWORD` env vars
+### 2. `src/main.rs` — Passes OdooClient into AppState
+- Replaced `let _ = odoo_client` with `odoo_mutex` wrapping into `tokio::sync::Mutex`
+- Added `odoo_client: odoo_mutex` to AppState construction
 
-### 3. Updated `src/main.rs`
-- Initializes `OdooClient` from config when ODOO_URL + ODOO_USER are set
-- Currently stored as `let _ = odoo_client` — will be wired into AppState in next step
+### 3. `src/services/repair.rs` — Calls Odoo on intake
+- After saving `DeviceIntake`, checks `state.odoo_client`
+- If present: authenticates, calls `create_repair_order()`
+- If absent: logs "Not configured, skipping" (no-op)
+- Errors are logged but don't block the intake flow
 
-### 4. Updated `src/services/repair.rs`
-- Replaced TODO comment with note about pending OdooClient integration via AppState
-
-### 5. Created `src/lib.rs`
-- Re-exports all modules (`pub mod sync`, `pub mod models`, etc.)
-- Enables integration tests via `use eckwmsr::sync::vector_clock::*`
-
-### 6. Created `tests/sync_tests.rs`
-- `test_vector_clock_causality` — validates Equal, Before, After, Concurrent relations
-- `test_vector_clock_merge` — validates max-component merge semantics
-- Fixed architect's bug: used `.0.insert()` instead of nonexistent `VectorClock::set()`
-
-### 7. Updated `src/services/mod.rs`
-- Added `pub mod odoo;`
+## Flow
+```
+Android PDA -> intake_save event -> handlers/repair.rs
+  -> RepairService::process_intake()
+    -> Save DeviceIntake to local DB
+    -> Create ProductAlias (HWB <-> Serial)
+    -> If Odoo configured:
+         Lock mutex -> authenticate -> create_repair_order()
+    -> If not: log and skip
+```
 
 ## Verification
-- `cargo check` passes (no new errors)
+- `cargo check` — passes, no new warnings
 - `cargo test --lib` — 36 tests pass
-- Integration tests compile but can't link while server holds exe lock (will pass when server is stopped)
