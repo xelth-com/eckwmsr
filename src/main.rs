@@ -148,6 +148,7 @@ async fn main() {
     }
 
     let ws_hub = handlers::ws::WsHub::new();
+    let mesh_hub = handlers::mesh_ws::MeshHub::new();
 
     // Initialize server identity for device pairing (Ed25519 keypair)
     let server_identity = utils::identity::load_or_generate_identity(&cfg.instance_id);
@@ -165,6 +166,7 @@ async fn main() {
         ai_client,
         file_store,
         ws_hub,
+        mesh_hub,
         setup_password,
         server_identity,
         _embedded_pg: embedded_pg,
@@ -269,7 +271,8 @@ async fn main() {
     let mesh_routes = Router::new()
         .route("/nodes", get(handlers::mesh::list_nodes))
         .route("/status", get(handlers::mesh::get_status))
-        .route("/relay-status", get(handlers::mesh::get_relay_status));
+        .route("/relay-status", get(handlers::mesh::get_relay_status))
+        .route("/ws", get(handlers::mesh_ws::mesh_ws_handler));
 
     // Build the main router — strict /E prefix for microservice deployment
     let app = Router::new()

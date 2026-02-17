@@ -9,6 +9,7 @@ use tracing::info;
 
 use crate::ai::client::GeminiClient;
 use crate::config::Config;
+use crate::handlers::mesh_ws::MeshHub;
 use crate::handlers::ws::WsHub;
 use crate::models;
 use crate::services::filestore::FileStoreService;
@@ -32,6 +33,8 @@ pub struct AppState {
     pub ai_client: Option<GeminiClient>,
     pub file_store: FileStoreService,
     pub ws_hub: WsHub,
+    /// Mesh WebSocket hub for server-to-server signaling
+    pub mesh_hub: MeshHub,
     /// Temporary setup password shown on login page when no users exist
     pub setup_password: Option<String>,
     /// Server Ed25519 identity for device pairing QR codes

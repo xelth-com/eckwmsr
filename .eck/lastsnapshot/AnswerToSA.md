@@ -1,33 +1,48 @@
-# Connectivity Hub — Unified Scanners + Servers UI
+# Phase 13.1: Mesh WebSocket Infrastructure
 
 ## What was done
-Integrated Server Pairing into the Dashboard's Devices page with a tabbed interface (Scanners / Mesh Servers), added config persistence API and mesh node deletion.
+Implemented server-to-server WebSocket signaling for live mesh sync.
 
-## Backend Changes
+## Changes
 
-### New: `src/handlers/config.rs`
-- `POST /api/admin/config/save-key` — validates 64-hex-char key and writes `SYNC_NETWORK_KEY` to `.env` file (creates or updates)
+### New: `src/handlers/mesh_ws.rs`
+- **`MeshHub`** — manages peer connections via `broadcast::channel`:
+  - `broadcast(signal)` — send to all connected peers
+  - `notify_update(sender, entity_type, entity_id)` — convenience for entity change signals
+  - `register/unregister` — track connected peers
+  - `subscribe()` — get a receiver for hub signals
+  - `peer_count()` — monitoring
+- **`MeshSignal`** — JSON message protocol:
+  - `type`: "HELLO", "UPDATE", "PING"
+  - `senderId`: originating instance
+  - `entityType` / `entityId`: optional, for UPDATE signals
+- **`mesh_ws_handler`** — Axum WebSocket handler at `/E/mesh/ws?instance_id=...`:
+  - Accepts connection, sends HELLO
+  - Bidirectional: forwards hub broadcasts to peer, reads incoming signals from peer
+  - Re-broadcasts received UPDATE signals to other peers
+  - Properly splits socket with `futures_util::{SinkExt, StreamExt}`
+  - Uses `tokio::select!` for clean shutdown
 
-### Updated: `src/handlers/mesh.rs`
-- `DELETE /api/admin/mesh/:id` — deletes a mesh node by instance_id
-
-### Updated: `src/main.rs`
-- Registered `/admin/config/save-key` and `/admin/mesh/:id` routes under protected API
+### Updated: `src/db.rs`
+- Added `mesh_hub: MeshHub` to `AppState`
 
 ### Updated: `src/handlers/mod.rs`
-- Added `pub mod config;`
+- Added `pub mod mesh_ws;`
 
-## Frontend Changes
+### Updated: `src/main.rs`
+- Initialized `MeshHub::new()`
+- Added to `AppState` construction
+- Registered `/ws` route under `/E/mesh` nest (public, no JWT)
 
-### Replaced: `web/src/routes/dashboard/devices/+page.svelte`
-- **Tabbed layout**: "Scanners (PDAs)" and "Mesh Servers" tabs
-- **Scanners tab**: QR pairing, device list with status/approve/block/delete, home node selector
-- **Servers tab**:
-  - "Invite Server" button → generates code, polls for peer, approve modal
-  - "Join Network" input → enter code, connect, poll for approval, save network key
-  - Server list with role badges (master/peer), online status, unpair button
-- Pairing modal with full Host/Client workflow
+## Endpoint
+`GET /E/mesh/ws?instance_id=<peer_instance_id>` — WebSocket upgrade
+
+## Signal Protocol
+```json
+{"type":"HELLO","senderId":"rust_dev_node"}
+{"type":"UPDATE","senderId":"rust_dev_node","entityType":"product","entityId":"123"}
+{"type":"PING","senderId":"rust_dev_node"}
+```
 
 ## Verification
 - `cargo check` — zero errors
-- `npm run build` — frontend compiles successfully
