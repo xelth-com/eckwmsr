@@ -4,14 +4,27 @@
     import { toastStore } from '$lib/stores/toastStore';
     import { base } from '$app/paths';
 
+    // Tabs
+    let activeTab = 'scanners'; // 'scanners' | 'servers'
+
+    // Scanners Data
     let devices = [];
-    let meshNodes = []; // Available servers
+    let meshNodes = [];
     let loading = true;
     let qrUrl = '';
     let showQr = false;
     let qrType = 'standard';
 
-    async function loadData() {
+    // Server Pairing Data
+    let pairingStep = 'idle'; // idle, hosting, connecting, waiting_approval, approving
+    let pairingCode = '';
+    let connectCode = '';
+    let pendingPeer = null;
+    let pollTimer = null;
+
+    // --- SCANNERS LOGIC ---
+
+    async function loadScannersData() {
         loading = true;
         try {
             const [devicesData, nodesData, statusData] = await Promise.all([
@@ -21,10 +34,7 @@
             ]);
             devices = devicesData || [];
 
-            // Process nodes for dropdown
-            meshNodes = nodesData || [];
-
-            // Add current node (self) since /mesh/nodes excludes self
+            let nodes = nodesData || [];
             if (statusData && statusData.instance_id) {
                 const selfNode = {
                     instance_id: statusData.instance_id,
@@ -32,11 +42,11 @@
                     base_url: statusData.base_url || 'http://localhost:3210',
                     is_self: true
                 };
-                // Add at the beginning
-                meshNodes = [selfNode, ...meshNodes];
+                nodes = [selfNode, ...nodes];
             }
+            meshNodes = nodes;
         } catch (e) {
-            toastStore.add('Failed to load data: ' + e.message, 'error');
+            toastStore.add('Failed to load devices: ' + e.message, 'error');
         } finally {
             loading = false;
         }
@@ -46,7 +56,6 @@
         try {
             await api.put(`/api/admin/devices/${deviceId}/status`, { status });
             toastStore.add(`Device ${status}`, 'success');
-            // Update local state instead of full reload
             devices = devices.map(d => d.deviceId === deviceId ? { ...d, status } : d);
         } catch (e) {
             toastStore.add(e.message, 'error');
@@ -63,13 +72,11 @@
     }
 
     async function deleteDevice(deviceId) {
-        if (!confirm('Are you sure you want to delete this device? This will sync to all nodes.')) {
-            return;
-        }
+        if (!confirm('Delete this device?')) return;
         try {
             await api.delete(`/api/admin/devices/${deviceId}`);
             toastStore.add('Device deleted', 'success');
-            await loadData();
+            await loadScannersData();
         } catch (e) {
             toastStore.add(e.message, 'error');
         }
@@ -79,217 +86,395 @@
         try {
             await api.post(`/api/admin/devices/${deviceId}/restore`);
             toastStore.add('Device restored', 'success');
-            await loadData();
+            await loadScannersData();
         } catch (e) {
             toastStore.add(e.message, 'error');
         }
     }
 
     async function loadQr(type = 'standard') {
-        if (showQr && qrType === type) {
-            showQr = false;
-            return;
-        }
+        if (showQr && qrType === type) { showQr = false; return; }
         qrType = type;
         try {
             const token = localStorage.getItem('auth_token');
             const url = type === 'vip'
                 ? `${base}/api/internal/pairing-qr?type=vip`
                 : `${base}/api/internal/pairing-qr`;
-
-            const res = await fetch(url, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
             const blob = await res.blob();
             qrUrl = URL.createObjectURL(blob);
             showQr = true;
         } catch (e) {
-            toastStore.add('Failed to load Pairing QR', 'error');
+            toastStore.add('Failed to load QR', 'error');
         }
     }
 
-    function getNodeName(instanceId, includeUrl = false) {
+    function getNodeName(instanceId) {
         if (!instanceId) return 'Unknown';
-
         const node = meshNodes.find(n => n.instance_id === instanceId);
-
-        // Extract role from node data or instance_id pattern
-        let role = 'UNKNOWN';
-        if (node) {
-            role = node.role.toUpperCase();
-        } else {
-            // Try to determine role from instance_id pattern
-            if (instanceId.includes('production')) role = 'MASTER';
-            else if (instanceId.includes('instance_')) role = 'PEER';
-            else if (instanceId.includes('local')) role = 'PEER';
-        }
-
-        let identifier = '';
-
-        // If node has a non-localhost URL, use domain as identifier
+        let role = node ? node.role.toUpperCase() : 'PEER';
+        let identifier = instanceId;
         if (node && node.base_url && !node.base_url.includes('localhost')) {
-            try {
-                const url = new URL(node.base_url);
-                identifier = url.hostname; // e.g., "pda.repair"
-            } catch (e) {
-                // URL parsing failed, fall through to hash extraction
-            }
+            try { identifier = new URL(node.base_url).hostname; } catch (e) { /* ignore */ }
         }
-
-        // If no domain available, extract meaningful part from instance_id
-        if (!identifier) {
-            let hash = instanceId;
-
-            // Remove common prefixes
-            hash = hash.replace(/^production_/, '');
-            hash = hash.replace(/^local_/, '');
-            hash = hash.replace(/^instance_/, '');
-
-            // For UUIDs, take first two segments
-            if (hash.includes('-')) {
-                const uuidParts = hash.split('-');
-                if (uuidParts.length >= 5) {
-                    hash = uuidParts.slice(0, 2).join('-');
-                }
-            }
-
-            // Limit length if still too long
-            if (hash.length > 20) {
-                hash = hash.substring(0, 20);
-            }
-
-            identifier = hash;
-        }
-
+        if (identifier.length > 20) identifier = identifier.substring(0, 20);
         return `${role}-${identifier}`;
     }
 
+    // --- SERVER PAIRING LOGIC ---
+
+    let serverNodes = [];
+
+    async function loadServersData() {
+        loading = true;
+        try {
+            const nodes = await api.get('/mesh/nodes');
+            serverNodes = nodes || [];
+        } catch (e) {
+            toastStore.add('Failed to load nodes', 'error');
+        } finally {
+            loading = false;
+        }
+    }
+
+    async function deleteServer(id) {
+        if (!confirm('Unpair this server?')) return;
+        try {
+            await api.delete(`/api/admin/mesh/${id}`);
+            toastStore.add('Server unpaired', 'success');
+            await loadServersData();
+        } catch (e) {
+            toastStore.add(e.message, 'error');
+        }
+    }
+
+    // Host Flow
+    async function startHosting() {
+        try {
+            const res = await api.post('/api/pairing/host', {});
+            pairingCode = res.code;
+            pairingStep = 'hosting';
+            pollForPeer(res.code);
+        } catch (e) {
+            toastStore.add(e.message, 'error');
+        }
+    }
+
+    async function pollForPeer(code) {
+        if (pairingStep !== 'hosting') return;
+        try {
+            const res = await api.post('/api/pairing/check', { code });
+            if (res.found) {
+                pendingPeer = { id: res.remote_instance_id, name: res.remote_instance_name };
+                pairingStep = 'approving';
+            } else {
+                pollTimer = setTimeout(() => pollForPeer(code), 2000);
+            }
+        } catch (e) {
+            console.error('Polling error', e);
+        }
+    }
+
+    async function approvePeer() {
+        try {
+            await api.post('/api/pairing/approve', {
+                code: pairingCode,
+                remote_instance_id: pendingPeer.id
+            });
+            toastStore.add('Pairing successful!', 'success');
+            pairingStep = 'idle';
+            loadServersData();
+        } catch (e) {
+            toastStore.add(e.message, 'error');
+        }
+    }
+
+    // Client Flow
+    async function connectToServer() {
+        if (!connectCode) return;
+        try {
+            pairingStep = 'connecting';
+            await api.post('/api/pairing/connect', { code: connectCode });
+            toastStore.add('Connected! Waiting for approval...', 'info');
+            pairingStep = 'waiting_approval';
+            pollForApproval(connectCode);
+        } catch (e) {
+            pairingStep = 'idle';
+            toastStore.add(e.message, 'error');
+        }
+    }
+
+    async function pollForApproval(code) {
+        if (pairingStep !== 'waiting_approval') return;
+        try {
+            const res = await api.post('/api/pairing/finalize', { code });
+            if (res.status === 'finalized') {
+                if (res.network_key) {
+                    await saveConfig(res.network_key);
+                }
+                toastStore.add('Pairing Complete! Server saved.', 'success');
+                pairingStep = 'idle';
+                loadServersData();
+            } else {
+                pollTimer = setTimeout(() => pollForApproval(code), 2000);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async function saveConfig(key) {
+        try {
+            await api.post('/api/admin/config/save-key', { network_key: key });
+            toastStore.add('Network Key saved. Restart server to apply.', 'warning');
+        } catch (e) {
+            toastStore.add('Failed to save config: ' + e.message, 'error');
+        }
+    }
+
+    function cancelPairing() {
+        if (pollTimer) clearTimeout(pollTimer);
+        pairingStep = 'idle';
+        pairingCode = '';
+        connectCode = '';
+        pendingPeer = null;
+    }
+
+    function switchTab(tab) {
+        activeTab = tab;
+        if (tab === 'scanners') loadScannersData();
+        else loadServersData();
+    }
+
     onMount(() => {
-        loadData();
+        loadScannersData();
     });
 </script>
 
 <div class="page">
     <header>
-        <h1>Device Management</h1>
-        <div class="action-group">
-            <button class="btn secondary" class:active={showQr && qrType === 'standard'} on:click={() => loadQr('standard')}>
-                Show Standard QR
+        <h1>Connectivity & Devices</h1>
+        <div class="tabs">
+            <button class="tab" class:active={activeTab === 'scanners'} on:click={() => switchTab('scanners')}>
+                Scanners (PDAs)
             </button>
-            <button class="btn primary" class:active={showQr && qrType === 'vip'} on:click={() => loadQr('vip')}>
-                Show Auto-Approve QR
+            <button class="tab" class:active={activeTab === 'servers'} on:click={() => switchTab('servers')}>
+                Mesh Servers
             </button>
-            <button class="btn secondary" on:click={loadData}>↻ Refresh</button>
         </div>
     </header>
 
-    {#if showQr && qrUrl}
-        <div class="qr-panel" class:vip={qrType === 'vip'}>
-            <h3>{qrType === 'vip' ? '⚡ Auto-Approve Pairing' : '🔒 Standard Pairing'}</h3>
-            <img src={qrUrl} alt="Pairing QR" />
-            <p class="hint">
-                {#if qrType === 'vip'}
-                    <strong>Warning:</strong> Devices scanning this code will be <u>immediately authorized</u>. Valid for 24 hours.
-                {:else}
-                    Devices scanning this code will appear as <strong>Pending</strong> below.
-                {/if}
-            </p>
-            <button class="btn-text" on:click={() => showQr = false}>Close</button>
+    {#if activeTab === 'scanners'}
+        <!-- SCANNERS VIEW -->
+        <div class="toolbar">
+            <div class="action-group">
+                <button class="btn secondary" class:active={showQr && qrType === 'standard'} on:click={() => loadQr('standard')}>
+                    Standard QR
+                </button>
+                <button class="btn primary" class:active={showQr && qrType === 'vip'} on:click={() => loadQr('vip')}>
+                    Auto-Approve QR
+                </button>
+            </div>
+            <button class="btn secondary" on:click={loadScannersData}>Refresh</button>
         </div>
-    {/if}
 
-    <div class="device-list">
-        {#if loading}
-            <div class="loading">Loading devices...</div>
-        {:else if devices.length === 0}
-            <div class="empty">No devices registered. Scan a QR code to add one.</div>
-        {:else}
-            <table>
-                <thead>
-                    <tr>
-                        <th>Status</th>
-                        <th>Device Name</th>
-                        <th>ID / Key</th>
-                        <th>Home Node (Proxy Target)</th>
-                        <th>Last Seen</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {#each devices as device}
-                        <tr class:deleted={device.deletedAt}>
-                            <td>
-                                {#if device.deletedAt}
-                                    <span class="badge deleted">Deleted</span>
-                                {:else}
-                                    <span class="badge {device.status}">{device.status}</span>
-                                {/if}
-                            </td>
-                            <td>
-                                <div class="device-name">{device.name || 'Unknown'}</div>
-                            </td>
-                            <td>
-                                <div class="mono-id" title={device.deviceId}>{device.deviceId.substring(0, 8)}...</div>
-                                <div class="mono-key" title="Public Key">{device.publicKey ? device.publicKey.substring(0, 8) + '...' : '-'}</div>
-                            </td>
-                            <td>
-                                <div class="home-node-control">
+        {#if showQr && qrUrl}
+            <div class="qr-panel" class:vip={qrType === 'vip'}>
+                <h3>{qrType === 'vip' ? 'Auto-Approve Pairing' : 'Standard Pairing'}</h3>
+                <img src={qrUrl} alt="Pairing QR" />
+                <p class="hint">
+                    {#if qrType === 'vip'}
+                        <strong>Warning:</strong> Devices scanning this code will be <u>immediately authorized</u>.
+                    {:else}
+                        Devices scanning this code will appear as <strong>Pending</strong> below.
+                    {/if}
+                </p>
+                <button class="btn-text" on:click={() => showQr = false}>Close</button>
+            </div>
+        {/if}
+
+        <div class="list-container">
+            {#if loading}
+                <div class="loading">Loading devices...</div>
+            {:else if devices.length === 0}
+                <div class="empty">No devices registered. Scan a QR code to add one.</div>
+            {:else}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>Device Name</th>
+                            <th>ID / Key</th>
+                            <th>Home Node</th>
+                            <th>Last Seen</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {#each devices as device}
+                            <tr class:deleted={device.deletedAt}>
+                                <td>
+                                    {#if device.deletedAt}
+                                        <span class="badge deleted">Deleted</span>
+                                    {:else}
+                                        <span class="badge {device.status}">{device.status}</span>
+                                    {/if}
+                                </td>
+                                <td>{device.name || 'Unknown'}</td>
+                                <td>
+                                    <div class="mono-id" title={device.deviceId}>{device.deviceId.substring(0, 8)}...</div>
+                                    <div class="mono-key">{device.publicKey ? device.publicKey.substring(0, 8) + '...' : '-'}</div>
+                                </td>
+                                <td>
                                     <select
                                         value={device.homeInstanceId}
                                         on:change={(e) => updateHomeNode(device.deviceId, e.target.value)}
                                         disabled={!!device.deletedAt}
+                                        class="node-select"
                                     >
                                         <option value={device.homeInstanceId}>{getNodeName(device.homeInstanceId)} (Current)</option>
                                         {#each meshNodes as node}
                                             {#if node.instance_id !== device.homeInstanceId}
-                                                <option value={node.instance_id}>
-                                                    {getNodeName(node.instance_id, true)}
-                                                </option>
+                                                <option value={node.instance_id}>{getNodeName(node.instance_id)}</option>
                                             {/if}
                                         {/each}
                                     </select>
-                                </div>
-                            </td>
-                            <td>{new Date(device.lastSeenAt).toLocaleString()}</td>
-                            <td class="actions">
-                                {#if device.deletedAt}
-                                    <button class="btn-icon restore" title="Restore" on:click={() => restoreDevice(device.deviceId)}>♻️</button>
-                                {:else}
-                                    {#if device.status === 'pending' || device.status === 'blocked'}
-                                        <button class="btn-icon approve" title="Approve" on:click={() => updateStatus(device.deviceId, 'active')}>✅</button>
+                                </td>
+                                <td>{new Date(device.lastSeenAt).toLocaleString()}</td>
+                                <td class="actions">
+                                    {#if device.deletedAt}
+                                        <button class="btn-icon" title="Restore" on:click={() => restoreDevice(device.deviceId)}>&#9851;</button>
+                                    {:else}
+                                        {#if device.status === 'pending' || device.status === 'blocked'}
+                                            <button class="btn-icon approve" title="Approve" on:click={() => updateStatus(device.deviceId, 'active')}>&#10003;</button>
+                                        {/if}
+                                        {#if device.status === 'active' || device.status === 'pending'}
+                                            <button class="btn-icon block" title="Block" on:click={() => updateStatus(device.deviceId, 'blocked')}>&#10007;</button>
+                                        {/if}
+                                        <button class="btn-icon delete" title="Delete" on:click={() => deleteDevice(device.deviceId)}>&#128465;</button>
                                     {/if}
-                                    {#if device.status === 'active' || device.status === 'pending'}
-                                        <button class="btn-icon block" title="Block" on:click={() => updateStatus(device.deviceId, 'blocked')}>⛔</button>
-                                    {/if}
-                                    <button class="btn-icon delete" title="Delete" on:click={() => deleteDevice(device.deviceId)}>🗑️</button>
-                                {/if}
-                            </td>
-                        </tr>
-                    {/each}
-                </tbody>
-            </table>
+                                </td>
+                            </tr>
+                        {/each}
+                    </tbody>
+                </table>
+            {/if}
+        </div>
+
+    {:else}
+        <!-- SERVERS VIEW -->
+        <div class="toolbar">
+            <div class="action-group">
+                <button class="btn primary" on:click={startHosting}>+ Invite Server</button>
+            </div>
+            <div class="join-group">
+                <input type="text" placeholder="XXX-XXX" bind:value={connectCode} maxlength="7" />
+                <button class="btn secondary" on:click={connectToServer} disabled={connectCode.length < 6}>Join Network</button>
+            </div>
+        </div>
+
+        {#if pairingStep !== 'idle'}
+            <div class="pairing-modal">
+                <div class="modal-content">
+                    {#if pairingStep === 'hosting'}
+                        <h3>Waiting for connection...</h3>
+                        <div class="big-code">{pairingCode}</div>
+                        <p>Enter this code on the other server</p>
+                        <div class="spinner"></div>
+                        <button class="btn secondary" on:click={cancelPairing}>Cancel</button>
+
+                    {:else if pairingStep === 'approving'}
+                        <h3>Connection Request</h3>
+                        <p>Server <strong>{pendingPeer?.name || 'Unknown'}</strong> wants to connect.</p>
+                        <p class="mono-sm">ID: {pendingPeer?.id}</p>
+                        <div class="modal-actions">
+                            <button class="btn secondary" on:click={cancelPairing}>Deny</button>
+                            <button class="btn primary" on:click={approvePeer}>Approve</button>
+                        </div>
+
+                    {:else if pairingStep === 'connecting'}
+                        <h3>Connecting...</h3>
+                        <div class="spinner"></div>
+
+                    {:else if pairingStep === 'waiting_approval'}
+                        <h3>Waiting for approval...</h3>
+                        <p>Please approve the request on the Host server.</p>
+                        <div class="spinner"></div>
+                        <button class="btn secondary" on:click={cancelPairing}>Cancel</button>
+                    {/if}
+                </div>
+            </div>
         {/if}
-    </div>
+
+        <div class="list-container">
+            {#if loading}
+                <div class="loading">Loading nodes...</div>
+            {:else if serverNodes.length === 0}
+                <div class="empty">No paired servers. Use "Invite Server" or enter a code to join a network.</div>
+            {:else}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>Name</th>
+                            <th>Role</th>
+                            <th>Address</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {#each serverNodes as node}
+                            <tr>
+                                <td>
+                                    <span class="dot" class:online={node.is_online}></span>
+                                    {node.is_online ? 'Online' : 'Offline'}
+                                </td>
+                                <td>{node.name}</td>
+                                <td><span class="role-badge {node.role}">{node.role}</span></td>
+                                <td class="mono">{node.base_url || 'Relay Only'}</td>
+                                <td>
+                                    <button class="btn-icon delete" title="Unpair" on:click={() => deleteServer(node.instance_id)}>&#128465;</button>
+                                </td>
+                            </tr>
+                        {/each}
+                    </tbody>
+                </table>
+            {/if}
+        </div>
+    {/if}
 </div>
 
 <style>
+    .page { padding: 2rem; max-width: 1100px; margin: 0 auto; }
     header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem; }
-    h1 { color: #fff; margin: 0; }
+    h1 { color: #fff; margin: 0; font-size: 1.8rem; }
+
+    .tabs { display: flex; gap: 8px; }
+    .tab { background: #333; border: none; color: #aaa; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s; }
+    .tab.active { background: #4a69bd; color: white; }
+    .tab:hover:not(.active) { background: #444; }
+
+    .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background: #1e1e1e; padding: 1rem; border-radius: 8px; border: 1px solid #333; flex-wrap: wrap; gap: 10px; }
     .action-group { display: flex; gap: 10px; }
+    .join-group { display: flex; gap: 10px; }
+    .join-group input { padding: 8px 12px; border-radius: 4px; border: 1px solid #444; background: #111; color: #fff; width: 120px; text-align: center; font-family: monospace; font-size: 1.1rem; letter-spacing: 2px; }
 
     .qr-panel { background: #fff; padding: 2rem; border-radius: 12px; text-align: center; margin-bottom: 2rem; color: #000; max-width: 400px; margin-left: auto; margin-right: auto; border: 4px solid transparent; }
     .qr-panel.vip { border-color: #f39c12; background: #fff9e6; }
     .qr-panel img { max-width: 100%; height: auto; display: block; margin: 0 auto; border: 1px solid #eee; }
     .hint { margin-top: 1rem; font-size: 0.9rem; color: #555; }
 
-    table { width: 100%; border-collapse: collapse; background: #1e1e1e; border-radius: 8px; overflow: hidden; }
-    th, td { padding: 1rem; text-align: left; border-bottom: 1px solid #333; color: #eee; vertical-align: middle; }
-    th { background: #252525; font-weight: 600; color: #888; text-transform: uppercase; font-size: 0.8rem; }
-
+    .list-container { background: #1e1e1e; border-radius: 8px; border: 1px solid #333; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; color: #eee; }
+    th { text-align: left; padding: 1rem; background: #252525; border-bottom: 1px solid #333; color: #888; font-size: 0.8rem; text-transform: uppercase; font-weight: 600; }
+    td { padding: 1rem; border-bottom: 1px solid #2a2a2a; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
     tr.deleted { opacity: 0.5; background: #2a1a1a; }
 
+    .mono { font-family: monospace; color: #aaa; font-size: 0.9rem; }
     .mono-id { font-family: monospace; color: #fff; font-weight: bold; }
     .mono-key { font-family: monospace; color: #666; font-size: 0.8em; }
+    .mono-sm { font-family: monospace; color: #aaa; font-size: 0.8rem; background: #111; padding: 4px 8px; border-radius: 4px; display: inline-block; }
 
     .badge { padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
     .badge.active { background: rgba(40, 167, 69, 0.2); color: #28a745; }
@@ -297,20 +482,38 @@
     .badge.blocked { background: rgba(220, 53, 69, 0.2); color: #dc3545; }
     .badge.deleted { background: #333; color: #aaa; text-decoration: line-through; }
 
-    /* Controls */
-    .home-node-control select {
-        background: #111; border: 1px solid #444; color: #ddd; padding: 6px; border-radius: 4px; max-width: 200px;
-    }
+    .role-badge { padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
+    .role-badge.master { background: rgba(243, 156, 18, 0.2); color: #f39c12; }
+    .role-badge.peer { background: rgba(74, 105, 189, 0.2); color: #4a69bd; }
+
+    .node-select { background: #111; border: 1px solid #444; color: #ddd; padding: 6px; border-radius: 4px; max-width: 200px; }
+
+    .dot { height: 8px; width: 8px; background-color: #dc3545; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .dot.online { background-color: #28a745; box-shadow: 0 0 5px #28a745; }
 
     .btn { padding: 0.6rem 1.2rem; border-radius: 6px; border: 1px solid transparent; font-weight: 600; cursor: pointer; transition: all 0.2s; }
     .btn.active { transform: translateY(2px); box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
-    .btn.primary { background: #f39c12; color: #000; }
+    .btn.primary { background: #4a69bd; color: white; }
+    .btn.primary:hover { background: #3a59ad; }
     .btn.secondary { background: #2a2a2a; color: #fff; border-color: #444; }
+    .btn.secondary:hover { background: #3a3a3a; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn-text { background: none; border: none; color: #666; text-decoration: underline; margin-top: 10px; cursor: pointer; }
-
-    .btn-icon { background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 4px; transition: transform 0.2s; }
+    .btn-icon { background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 4px; transition: transform 0.2s; color: #aaa; }
     .btn-icon:hover { transform: scale(1.2); }
-    .btn-icon.restore { background: #2a2a2a; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; }
+    .btn-icon.approve { color: #28a745; }
+    .btn-icon.block { color: #dc3545; }
+    .btn-icon.delete { color: #888; }
+    .btn-icon.delete:hover { color: #dc3545; }
 
-    .empty, .loading { text-align: center; padding: 3rem; color: #666; font-style: italic; }
+    /* Pairing Modal */
+    .pairing-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+    .modal-content { background: #252525; padding: 2.5rem; border-radius: 12px; border: 1px solid #444; text-align: center; min-width: 320px; color: #fff; }
+    .modal-content h3 { margin-top: 0; }
+    .big-code { font-size: 2.5rem; font-family: monospace; letter-spacing: 4px; color: #4a69bd; margin: 1rem 0; font-weight: bold; background: #111; padding: 12px; border-radius: 8px; border: 1px dashed #444; }
+    .spinner { width: 30px; height: 30px; border: 3px solid #444; border-top: 3px solid #4a69bd; border-radius: 50%; animation: spin 1s linear infinite; margin: 20px auto; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .modal-actions { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
+
+    .empty, .loading { padding: 3rem; text-align: center; color: #666; font-style: italic; }
 </style>

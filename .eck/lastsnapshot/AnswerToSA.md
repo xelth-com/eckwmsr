@@ -1,34 +1,33 @@
-# Phase 12: Server Pairing System — Completion Report
+# Connectivity Hub — Unified Scanners + Servers UI
 
 ## What was done
-Completed the Server-to-Server Pairing System with secure key exchange and session state management.
+Integrated Server Pairing into the Dashboard's Devices page with a tabbed interface (Scanners / Mesh Servers), added config persistence API and mesh node deletion.
 
-## Changes
+## Backend Changes
 
-### `src/db.rs`
-- Added `PairingSession` struct (code, remote_instance_id, remote_instance_name, remote_relay_url, created_at)
-- Added `pairing_sessions: Arc<RwLock<HashMap<String, PairingSession>>>` to `AppState`
+### New: `src/handlers/config.rs`
+- `POST /api/admin/config/save-key` — validates 64-hex-char key and writes `SYNC_NETWORK_KEY` to `.env` file (creates or updates)
 
-### `src/main.rs`
-- Initialized `pairing_sessions` in `AppState` construction
+### Updated: `src/handlers/mesh.rs`
+- `DELETE /api/admin/mesh/:id` — deletes a mesh node by instance_id
 
-### `src/services/pairing.rs`
-- Added `PairingApproval` struct (host_instance_id, network_key)
-- Removed `sync_network_key` from `PairingResponse` (was unused placeholder)
-- Added `send_approval()` — Host encrypts SYNC_NETWORK_KEY with code-derived key and pushes to relay "approval" channel
-- Added `receive_approval()` — Client pulls and decrypts the approval packet
+### Updated: `src/main.rs`
+- Registered `/admin/config/save-key` and `/admin/mesh/:id` routes under protected API
 
-### `src/handlers/pairing.rs`
-- `check_pairing`: Now stores discovered client info in `pairing_sessions` memory map
-- `approve_pairing`: Validates session exists + instance_id match, sends encrypted network key via relay, saves peer as mesh node, cleans up session
-- `finalize_pairing`: Polls for approval packet, returns "waiting" if not yet approved, returns network_key + host info when approved, saves host as master mesh node
+### Updated: `src/handlers/mod.rs`
+- Added `pub mod config;`
 
-## Pairing Flow (complete)
-1. **Host** calls `POST /api/pairing/host` → gets code "XXX-XXX"
-2. **Client** calls `POST /api/pairing/connect` with code → finds offer, sends response
-3. **Host** polls `POST /api/pairing/check` → discovers client, stores session
-4. **Host** calls `POST /api/pairing/approve` → encrypts SYNC_NETWORK_KEY, pushes to relay
-5. **Client** polls `POST /api/pairing/finalize` → receives key, saves host node
+## Frontend Changes
+
+### Replaced: `web/src/routes/dashboard/devices/+page.svelte`
+- **Tabbed layout**: "Scanners (PDAs)" and "Mesh Servers" tabs
+- **Scanners tab**: QR pairing, device list with status/approve/block/delete, home node selector
+- **Servers tab**:
+  - "Invite Server" button → generates code, polls for peer, approve modal
+  - "Join Network" input → enter code, connect, poll for approval, save network key
+  - Server list with role badges (master/peer), online status, unpair button
+- Pairing modal with full Host/Client workflow
 
 ## Verification
-- `cargo check` passes with zero errors
+- `cargo check` — zero errors
+- `npm run build` — frontend compiles successfully

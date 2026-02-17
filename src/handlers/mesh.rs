@@ -1,4 +1,8 @@
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    Json,
+};
 use sea_orm::{EntityTrait, QueryOrder};
 use serde::Serialize;
 use std::sync::Arc;
@@ -45,6 +49,23 @@ pub async fn list_nodes(
         .collect();
 
     Json(info_list)
+}
+
+/// DELETE /api/admin/mesh/:id — removes a mesh node
+pub async fn delete_node(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let result = mesh_node::Entity::delete_by_id(id)
+        .exec(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if result.rows_affected == 0 {
+        return Err((StatusCode::NOT_FOUND, "Node not found".to_string()));
+    }
+
+    Ok(Json(serde_json::json!({ "success": true })))
 }
 
 /// GET /mesh/status — returns this server's identity
