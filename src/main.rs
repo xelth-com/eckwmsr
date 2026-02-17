@@ -259,6 +259,9 @@ async fn main() {
         .route("/admin/devices/:id/home", put(handlers::device::update_device_home))
         .route("/admin/devices/:id", delete(handlers::device::delete_device))
         .route("/admin/devices/:id/restore", post(handlers::device::restore_device))
+        // PDA User API (multi-user selector + PIN verification)
+        .route("/users/active", get(handlers::pda_users::list_active_users))
+        .route("/users/verify-pin", post(handlers::pda_users::verify_pin))
         // Admin User Management
         .route("/admin/users", get(handlers::admin_users::list_users).post(handlers::admin_users::create_user))
         .route("/admin/users/:id", put(handlers::admin_users::update_user).delete(handlers::admin_users::delete_user))
