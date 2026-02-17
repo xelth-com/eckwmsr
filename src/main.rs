@@ -68,12 +68,10 @@ async fn main() {
         }
     };
 
-    // If using embedded PG, ensure all tables exist
-    if embedded_pg.is_some() {
-        if let Err(e) = db::create_schema(&db_conn).await {
-            error!("Schema creation failed: {}", e);
-            std::process::exit(1);
-        }
+    // Ensure all tables exist (uses IF NOT EXISTS, safe for any database)
+    if let Err(e) = db::create_schema(&db_conn).await {
+        error!("Schema creation failed: {}", e);
+        std::process::exit(1);
     }
 
     // Initialize Sync Engine

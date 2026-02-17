@@ -13,6 +13,15 @@ struct Assets;
 pub async fn static_handler(req: Request<Body>) -> impl IntoResponse {
     let mut path = req.uri().path();
 
+    // Redirect non-/E paths to /E/ so the SPA doesn't loop on itself
+    if !path.starts_with("/E") && !path.starts_with("/e") {
+        return Response::builder()
+            .status(StatusCode::FOUND)
+            .header(header::LOCATION, "/E/")
+            .body(Body::empty())
+            .unwrap();
+    }
+
     // Strip the /E/ or /e/ prefix since SvelteKit is mounted at /E
     if path.starts_with("/E/") || path.starts_with("/e/") {
         path = &path[3..];

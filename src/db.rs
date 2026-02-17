@@ -117,10 +117,10 @@ pub async fn create_schema(db: &DatabaseConnection) -> Result<(), sea_orm::DbErr
     create_table_if_not_exists!(models::location::Entity);
     create_table_if_not_exists!(models::quant::Entity);
     create_table_if_not_exists!(models::checksum::Entity);
+    create_table_if_not_exists!(models::partner::Entity);
     create_table_if_not_exists!(models::picking::Entity);
     create_table_if_not_exists!(models::move_line::Entity);
     create_table_if_not_exists!(models::rack::Entity);
-    create_table_if_not_exists!(models::partner::Entity);
     create_table_if_not_exists!(models::file_resource::Entity);
     create_table_if_not_exists!(models::attachment::Entity);
     create_table_if_not_exists!(models::delivery_carrier::Entity);
