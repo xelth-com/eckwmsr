@@ -25,6 +25,7 @@ use crate::sync::security::{SecurityLayer, SyncNodeRole};
 use crate::services::delivery::DeliveryService;
 use crate::services::delivery_dhl::DhlProvider;
 use crate::services::delivery_opal::OpalProvider;
+use crate::services::odoo::OdooClient;
 
 #[derive(Serialize)]
 struct HealthResponse {
@@ -102,6 +103,21 @@ async fn main() {
         info!("AI: No GEMINI_API_KEY set, AI module disabled");
         None
     };
+
+    // Initialize Odoo Client (optional — runs without it if not configured)
+    let odoo_client = if !cfg.odoo.url.is_empty() && !cfg.odoo.username.is_empty() {
+        info!("Odoo: Configured for {}", cfg.odoo.url);
+        Some(OdooClient::new(
+            cfg.odoo.url.clone(),
+            cfg.odoo.database.clone(),
+            cfg.odoo.username.clone(),
+            cfg.odoo.password.clone(),
+        ))
+    } else {
+        info!("Odoo: Not configured, repair sync disabled");
+        None
+    };
+    let _ = odoo_client; // Will be wired into RepairService/AppState in a future step
 
     // Initialize File Store (CAS)
     let file_store = services::filestore::FileStoreService::new(".");

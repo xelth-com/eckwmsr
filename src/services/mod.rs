@@ -5,3 +5,4 @@ pub mod delivery_opal;
 pub mod printer;
 pub mod repair;
 pub mod pairing;
+pub mod odoo;

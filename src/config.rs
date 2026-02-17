@@ -16,6 +16,15 @@ pub struct Config {
     pub gemini_api_key: String,
     pub gemini_primary_model: String,
     pub gemini_fallback_model: String,
+    pub odoo: OdooConfig,
+}
+
+#[derive(Clone, Default)]
+pub struct OdooConfig {
+    pub url: String,
+    pub database: String,
+    pub username: String,
+    pub password: String,
 }
 
 pub fn load_config() -> Config {
@@ -52,6 +61,13 @@ pub fn load_config() -> Config {
     let gemini_fallback_model =
         env::var("GEMINI_FALLBACK_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".to_string());
 
+    let odoo = OdooConfig {
+        url: env::var("ODOO_URL").unwrap_or_default(),
+        database: env::var("ODOO_DB").unwrap_or_default(),
+        username: env::var("ODOO_USER").unwrap_or_default(),
+        password: env::var("ODOO_PASSWORD").unwrap_or_default(),
+    };
+
     Config {
         port,
         instance_id,
@@ -64,6 +80,7 @@ pub fn load_config() -> Config {
         gemini_api_key,
         gemini_primary_model,
         gemini_fallback_model,
+        odoo,
     }
 }
 

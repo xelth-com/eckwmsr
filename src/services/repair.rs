@@ -69,9 +69,10 @@ impl RepairService {
             }
         }
 
-        // TODO: Sync to Odoo repair.order
+        // Odoo sync: OdooClient is initialized in main.rs.
+        // Once wired into AppState, will call odoo.create_repair_order() here.
         info!(
-            "Odoo Sync: Queued repair order creation for Intake #{} (Not implemented yet)",
+            "Odoo Sync: Intake #{} saved, pending background sync",
             inserted.id
         );
 

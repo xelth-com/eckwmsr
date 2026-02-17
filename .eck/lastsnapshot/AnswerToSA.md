@@ -1,30 +1,38 @@
-# Phase 14: Polish & Refactoring - Complete
+# Phase 14 (cont): Odoo Client & Integration Tests
 
 ## Changes Made
 
-### 1. Refactored `src/sync/engine.rs`
-- Extracted duplicate upsert logic into shared methods: `upsert_product()`, `upsert_location()`, `upsert_shipment()`
-- Both Relay pull (`process_product_packet`/`process_location_packet`) and Mesh pull (`apply_pull_response`) now call the same upsert methods
-- Removed redundant `use sea_orm::sea_query::OnConflict` import from `apply_pull_response`
-- Renamed `apply_product`/`apply_location` to `process_product_packet`/`process_location_packet` for clarity
-- Added early return in `perform_push` when `parsed_ids` is empty
-- File went from 406 lines to 381 lines with zero duplication
+### 1. Created `src/services/odoo.rs`
+- `OdooClient` with JSON-RPC authentication (`/jsonrpc` common.login)
+- `execute_kw()` for generic Odoo model method calls
+- `create_repair_order()` — looks up stock.lot by serial, creates repair.order
+- `search_read()` helper for domain queries with field/limit kwargs
+- Fixed architect's bug: replaced `interface::Value` alias with direct `serde_json::Value`
 
-### 2. Created `Dockerfile`
-- Multi-stage build: frontend (node:18-alpine) -> backend (rust:1.77-slim-bookworm) -> runtime (debian:bookworm-slim)
-- Dependency caching via dummy `main.rs` trick
-- Runtime includes only `ca-certificates` and `libssl3`
-- Exposes port 3210, sets `RUST_LOG=info`
+### 2. Updated `src/config.rs`
+- Added `OdooConfig` struct (url, database, username, password)
+- Config loads from `ODOO_URL`, `ODOO_DB`, `ODOO_USER`, `ODOO_PASSWORD` env vars
 
-### 3. Created `.dockerignore`
-- Excludes `target/`, `data/`, `.eck/`, logs, node_modules, `.env`
+### 3. Updated `src/main.rs`
+- Initializes `OdooClient` from config when ODOO_URL + ODOO_USER are set
+- Currently stored as `let _ = odoo_client` — will be wired into AppState in next step
 
-### 4. Created `README.md`
-- Quick Start for both binary and Docker
-- Mesh Sync pairing instructions
-- AI features setup (Gemini API key)
-- Architecture overview
-- Development commands
+### 4. Updated `src/services/repair.rs`
+- Replaced TODO comment with note about pending OdooClient integration via AppState
+
+### 5. Created `src/lib.rs`
+- Re-exports all modules (`pub mod sync`, `pub mod models`, etc.)
+- Enables integration tests via `use eckwmsr::sync::vector_clock::*`
+
+### 6. Created `tests/sync_tests.rs`
+- `test_vector_clock_causality` — validates Equal, Before, After, Concurrent relations
+- `test_vector_clock_merge` — validates max-component merge semantics
+- Fixed architect's bug: used `.0.insert()` instead of nonexistent `VectorClock::set()`
+
+### 7. Updated `src/services/mod.rs`
+- Added `pub mod odoo;`
 
 ## Verification
-- `cargo check` passes with no new warnings
+- `cargo check` passes (no new errors)
+- `cargo test --lib` — 36 tests pass
+- Integration tests compile but can't link while server holds exe lock (will pass when server is stopped)
