@@ -33,3 +33,6 @@ Implemented Merkle tree-based sync API for efficient O(log n) data difference de
 ## Verification
 - `cargo check` — zero errors
 - `cargo test` — 36 tests pass (including existing Merkle tree tests)
+
+
+[SYSTEM: EMBEDDED]
