@@ -7,11 +7,18 @@ const app = express();
 app.use(express.json());
 
 // Helper to launch browser, run logic, and close
+// Pass ?debug=1 in the request body or query to run in headed (visible) mode with slowMo.
 async function runScraper(req, res, logicFn) {
+    const debugMode = req.body?.debug || req.query?.debug;
+    const headless = !debugMode;
+    const slowMo = debugMode ? 600 : 0; // 600ms delay between actions in debug mode
+    if (debugMode) console.log('[Scraper] DEBUG MODE — browser window will be visible');
+
     let browser;
     try {
         browser = await chromium.launch({
-            headless: true,
+            headless,
+            slowMo,
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
         });
         const context = await browser.newContext({
@@ -154,8 +161,10 @@ app.post('/api/dhl/create', (req, res) => {
 // ─── DHL: Fetch Recent Shipments (CSV export) ──────────────────────────────
 app.post('/api/dhl/fetch', (req, res) => {
     runScraper(req, res, async (page, data) => {
-        const { username, password, url } = data;
-        const targetUrl = url || 'https://geschaeftskunden.dhl.de';
+        // Support _from_env: use server-side env vars when credentials not provided
+        const username = data.username || (data._from_env ? process.env.DHL_USERNAME : '') || '';
+        const password = data.password || (data._from_env ? process.env.DHL_PASSWORD : '') || '';
+        const targetUrl = data.url || process.env.DHL_URL || 'https://geschaeftskunden.dhl.de';
 
         await dhlLogin(page, targetUrl, username, password);
 
@@ -219,6 +228,8 @@ function parseDhlCsv(csvContent) {
     const headerMap = {
         'Sendungsnummer': 'tracking_number',
         'Sendungsreferenz': 'reference',
+        'internationale Sendungsnummer': 'international_number',
+        'Abrechnungsnummer': 'billing_number',
         'Empfängername': 'recipient_name',
         'Empfängerstraße (inkl. Hausnummer)': 'recipient_street',
         'Empfänger-PLZ': 'recipient_zip',
@@ -226,18 +237,28 @@ function parseDhlCsv(csvContent) {
         'Empfänger-Land': 'recipient_country',
         'Status': 'status',
         'Datum Status': 'status_date',
+        'Hinweis': 'note',
+        'Zugestellt an - Name': 'delivered_to_name',
+        'Zugestellt an - Straße (inkl. Hausnummer)': 'delivered_to_street',
+        'Zugestellt an - PLZ': 'delivered_to_zip',
+        'Zugestellt an - Ort': 'delivered_to_city',
+        'Zugestellt an - Land': 'delivered_to_country',
         'Produkt': 'product',
+        'Services': 'services',
     };
 
-    return lines.slice(1).map(line => {
-        const values = line.split(';').map(v => v.trim());
+    const shipments = [];
+    for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(';').map(v => v.trim());
+        if (values.length < headers.length) continue;
         const obj = {};
-        headers.forEach((h, i) => {
+        headers.forEach((h, idx) => {
             const key = headerMap[h] || h.toLowerCase().replace(/[^a-z0-9]/g, '_');
-            obj[key] = values[i] || '';
+            obj[key] = values[idx] || '';
         });
-        return obj;
-    }).filter(s => s.tracking_number);
+        if (obj.tracking_number) shipments.push(obj);
+    }
+    return shipments;
 }
 
 // ─── OPAL: Create Shipment ─────────────────────────────────────────────────
@@ -297,8 +318,12 @@ app.post('/api/opal/create', (req, res) => {
 // ─── OPAL: Fetch Recent Shipments (detail pages) ────────────────────────────
 app.post('/api/opal/fetch', (req, res) => {
     runScraper(req, res, async (page, data) => {
-        const { username, password, url, limit = 50 } = data;
-        const targetUrl = url || 'https://opal-kurier.de';
+        // Support _from_env: use server-side env vars when credentials not provided
+        const username = data.username || (data._from_env ? process.env.OPAL_USERNAME : '') || '';
+        const password = data.password || (data._from_env ? process.env.OPAL_PASSWORD : '') || '';
+        const url = data.url;
+        const limit = data.limit || 50;
+        const targetUrl = url || process.env.OPAL_URL || 'https://opal-kurier.de';
 
         // Navigate and login
         await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 60000 });
@@ -408,12 +433,25 @@ app.post('/api/opal/fetch', (req, res) => {
 function parseOpalDetail(text) {
     const order = {
         tracking_number: '', hwb_number: '', product_type: '', reference: '',
-        pickup_name: '', pickup_street: '', pickup_zip: '', pickup_city: '', pickup_country: 'DE',
-        delivery_name: '', delivery_street: '', delivery_zip: '', delivery_city: '', delivery_country: 'DE',
-        weight: null, status: '', status_date: '', status_time: ''
+        created_at: '', created_by: '',
+
+        pickup_name: '', pickup_name2: '', pickup_contact: '', pickup_phone: '',
+        pickup_email: '', pickup_street: '', pickup_zip: '', pickup_city: '',
+        pickup_country: 'DE', pickup_note: '', pickup_date: '',
+        pickup_time_from: '', pickup_time_to: '', pickup_vehicle: '',
+
+        delivery_name: '', delivery_name2: '', delivery_contact: '', delivery_phone: '',
+        delivery_email: '', delivery_street: '', delivery_zip: '', delivery_city: '',
+        delivery_country: 'DE', delivery_note: '', delivery_date: '',
+        delivery_time_from: '', delivery_time_to: '',
+
+        package_count: null, weight: null, value: null, description: '', dimensions: '',
+        status: '', status_date: '', status_time: '', receiver: ''
     };
+
     const lines = text.split('\n').map(l => l.trim()).filter(l => l);
 
+    // Parse SendungsNr, HWB, Auftragsart, Referenz
     for (const line of lines) {
         if (line.includes('SendungsNr')) {
             const m = line.match(/SendungsNr\s+(OCU[-\d]+)/);
@@ -427,46 +465,142 @@ function parseOpalDetail(text) {
             const m = line.match(/Auftragsart\s+(\S+)/);
             if (m) order.product_type = m[1];
         }
+        if (line.includes('Referenz') && !line.includes('Ref/KST')) {
+            const m = line.match(/Referenz\s+(\S+)/);
+            if (m) order.reference = m[1];
+        }
     }
 
-    const parseSection = (sectionName) => {
-        const idx = lines.findIndex(l => l === sectionName);
-        if (idx < 0) return {};
-        const result = {};
-        for (let i = idx + 1; i < Math.min(idx + 15, lines.length); i++) {
-            const l = lines[i];
-            if (l.startsWith('Name1')) result.name = l.replace('Name1', '').trim();
-            if (l.startsWith('Straße/Hs')) result.street = l.replace('Straße/Hs', '').trim();
-            if (l.startsWith('LKZ-Land')) {
-                const m = l.replace('LKZ-Land', '').trim().match(/([A-Z]{2})-(\d{4,5})\s+(.+)/);
-                if (m) { result.country = m[1]; result.zip = m[2]; result.city = m[3]; }
+    // Parse created info
+    const createdMatch = text.match(/erfasst am\s+([\d\.\-\s:]+Uhr)/);
+    if (createdMatch) order.created_at = createdMatch[1].trim();
+    const createdByMatch = text.match(/erfasst durch\s+(\S+)/);
+    if (createdByMatch) order.created_by = createdByMatch[1];
+
+    // Parse Abholung section
+    const abholungIdx = lines.findIndex(l => l === 'Abholung');
+    if (abholungIdx >= 0) {
+        for (let i = abholungIdx + 1; i < Math.min(abholungIdx + 15, lines.length); i++) {
+            const line = lines[i];
+            if (line.startsWith('Name1')) order.pickup_name = line.replace('Name1', '').trim();
+            if (line.startsWith('Name2')) order.pickup_name2 = line.replace('Name2', '').trim();
+            if (line.startsWith('Ansprechpartner')) order.pickup_contact = line.replace('Ansprechpartner', '').trim();
+            if (line.startsWith('Telefon')) order.pickup_phone = line.replace('Telefon', '').trim();
+            if (line.startsWith('Mail')) order.pickup_email = line.replace('Mail', '').trim();
+            if (line.startsWith('Straße/Hs')) order.pickup_street = line.replace('Straße/Hs', '').trim();
+            if (line.startsWith('LKZ-Land')) {
+                const addr = line.replace('LKZ-Land', '').trim();
+                const m = addr.match(/([A-Z]{2})-(\d{4,5})\s+(.+)/);
+                if (m) { order.pickup_country = m[1]; order.pickup_zip = m[2]; order.pickup_city = m[3]; }
             }
-            if (l === 'Zustellung' || l === 'Abholtermin') break;
+            if (line.startsWith('Hinweis') && !order.pickup_note) order.pickup_note = line.replace('Hinweis', '').trim();
+            if (line === 'Zustellung') break;
         }
-        return result;
-    };
+    }
 
-    const pickup = parseSection('Abholung');
-    const delivery = parseSection('Zustellung');
-    Object.assign(order, {
-        pickup_name: pickup.name || '', pickup_street: pickup.street || '',
-        pickup_zip: pickup.zip || '', pickup_city: pickup.city || '',
-        pickup_country: pickup.country || 'DE',
-        delivery_name: delivery.name || '', delivery_street: delivery.street || '',
-        delivery_zip: delivery.zip || '', delivery_city: delivery.city || '',
-        delivery_country: delivery.country || 'DE',
-    });
+    // Parse Zustellung section
+    const zustellungIdx = lines.findIndex(l => l === 'Zustellung');
+    if (zustellungIdx >= 0) {
+        for (let i = zustellungIdx + 1; i < Math.min(zustellungIdx + 15, lines.length); i++) {
+            const line = lines[i];
+            if (line.startsWith('Name1')) order.delivery_name = line.replace('Name1', '').trim();
+            if (line.startsWith('Name2')) order.delivery_name2 = line.replace('Name2', '').trim();
+            if (line.startsWith('Ansprechpartner')) order.delivery_contact = line.replace('Ansprechpartner', '').trim();
+            if (line.startsWith('Telefon')) order.delivery_phone = line.replace('Telefon', '').trim();
+            if (line.startsWith('Mail')) order.delivery_email = line.replace('Mail', '').trim();
+            if (line.startsWith('Straße/Hs')) order.delivery_street = line.replace('Straße/Hs', '').trim();
+            if (line.startsWith('LKZ-Land')) {
+                const addr = line.replace('LKZ-Land', '').trim();
+                const m = addr.match(/([A-Z]{2})-(\d{4,5})\s+(.+)/);
+                if (m) { order.delivery_country = m[1]; order.delivery_zip = m[2]; order.delivery_city = m[3]; }
+            }
+            if (line.startsWith('Hinweis') && !order.delivery_note) order.delivery_note = line.replace('Hinweis', '').trim();
+            if (line.includes('Abholtermin') || line.includes('Frühtermine')) break;
+        }
+    }
 
-    const weightMatch = text.match(/(\d+)\s+([\d,]+)\s+/m);
-    if (weightMatch) order.weight = parseFloat(weightMatch[2].replace(',', '.'));
+    // Parse pickup date/time
+    const abholTerminIdx = lines.findIndex(l => l.includes('Abholtermin'));
+    if (abholTerminIdx >= 0) {
+        for (let i = abholTerminIdx + 1; i < Math.min(abholTerminIdx + 5, lines.length); i++) {
+            const line = lines[i];
+            const dateMatch = line.match(/(\d{2}\.\d{2}\.\d{4})/);
+            if (dateMatch) order.pickup_date = dateMatch[1];
+            const timeMatch = line.match(/Zeit\s+(\d{2}:\d{2})\s+-\s+(\d{2}:\d{2})/);
+            if (timeMatch) { order.pickup_time_from = timeMatch[1]; order.pickup_time_to = timeMatch[2]; }
+            if (line.includes('Fahrzeug')) {
+                const vehicleMatch = line.match(/Fahrzeug\s+(\S+)/);
+                if (vehicleMatch) order.pickup_vehicle = vehicleMatch[1];
+            }
+            if (line.includes('Zustelltermin')) break;
+        }
+    }
 
-    const statusMatch = text.match(/(\d{12}|OCU-[\d-]+)\s+(\d{2}\.\d{2}\.\d{2})\s+(\d{2}:\d{2})\s+(Zugestellt|Abgeholt|Storniert|AKTIV|geliefert|ausgeliefert|Fehlanfahrt)/i);
-    if (statusMatch) { order.status = statusMatch[4]; order.status_date = statusMatch[2]; order.status_time = statusMatch[3]; }
+    // Parse delivery date/time
+    const zustellTerminIdx = lines.findIndex(l => l.includes('Zustelltermin'));
+    if (zustellTerminIdx >= 0) {
+        for (let i = zustellTerminIdx + 1; i < Math.min(zustellTerminIdx + 3, lines.length); i++) {
+            const line = lines[i];
+            const dateMatch = line.match(/(\d{2}\.\d{2}\.\d{4})/);
+            if (dateMatch) order.delivery_date = dateMatch[1];
+            const timeMatch = line.match(/Zeit\s+(\d{2}:\d{2})\s+-\s+(\d{2}:\d{2})/);
+            if (timeMatch) { order.delivery_time_from = timeMatch[1]; order.delivery_time_to = timeMatch[2]; }
+            if (line.includes('Sendung & Pack')) break;
+        }
+    }
+
+    // Parse package value
+    const wertMatch = text.match(/Wert\s+([\d\.,]+)\s*EUR/);
+    if (wertMatch) order.value = parseFloat(wertMatch[1].replace('.', '').replace(',', '.'));
+
+    // Parse weight, package count, description
+    const weightMatch = text.match(/(\d+)\s+([\d,]+)\s+([A-Za-z_][\w\s]+?)(?:\s+VolG|$)/m);
+    if (weightMatch) {
+        order.package_count = parseInt(weightMatch[1]);
+        order.weight = parseFloat(weightMatch[2].replace(',', '.'));
+        order.description = weightMatch[3].trim();
+    }
+
+    // Parse dimensions
+    const dimMatch = text.match(/L:\s*([\d,]+)\s*B:\s*([\d,]+)\s*H:\s*([\d,]+)/);
+    if (dimMatch) order.dimensions = `${dimMatch[1]}x${dimMatch[2]}x${dimMatch[3]}`;
+
+    // Parse status
+    const statusMatch = text.match(/(\d{12}|OCU-[\d-]+)\s+(\d{2}\.\d{2}\.\d{2})\s+(\d{2}:\d{2})\s+(Zugestellt|Abgeholt|Storniert|AKTIV|geliefert|ausgeliefert|Fehlanfahrt)\s*(\S*)/i);
+    if (statusMatch) {
+        order.status = statusMatch[4];
+        order.status_date = statusMatch[2];
+        order.status_time = statusMatch[3];
+        order.receiver = statusMatch[5] || '';
+    }
 
     return order;
 }
 
+// ─── Debug / Info ─────────────────────────────────────────────────────────────
+
+// GET /debug — shows scraper info and available endpoints.
+// Useful for checking if service is running and seeing all routes.
+app.get('/debug', (req, res) => {
+    res.json({
+        service: 'eck-playwright-scraper',
+        port: PORT,
+        status: 'running',
+        debug_mode_hint: 'Add "debug": true to POST body to run browser in headed (visible) mode with 600ms slowMo',
+        endpoints: [
+            { method: 'GET',  path: '/',                  desc: 'HTML status page' },
+            { method: 'POST', path: '/api/opal/create',   desc: 'Create OPAL shipment' },
+            { method: 'POST', path: '/api/opal/fetch',    desc: 'Fetch OPAL shipment list (supports debug:true)' },
+            { method: 'POST', path: '/api/dhl/create',    desc: 'Create DHL shipment' },
+            { method: 'POST', path: '/api/dhl/fetch',     desc: 'Fetch DHL shipment list via CSV (supports debug:true)' },
+            { method: 'GET',  path: '/debug',             desc: 'This page' },
+        ]
+    });
+});
+
 const PORT = process.env.PORT || 3211;
 app.listen(PORT, () => {
     console.log(`Eck Playwright Scraper Service running on port ${PORT}`);
+    console.log(`  Debug info: http://localhost:${PORT}/debug`);
+    console.log(`  Add "debug": true to any POST body to see the browser window`);
 });

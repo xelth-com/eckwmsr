@@ -39,7 +39,7 @@ function _page($$renderer, $$props) {
     {
       $$renderer2.push("<!--[!-->");
     }
-    $$renderer2.push(`<!--]--> <button class="refresh-btn svelte-1dkwspw"${attr("disabled", loading, true)}>${escape_html("↻ Loading...")}</button></div></header> <div class="tabs svelte-1dkwspw"><button${attr_class("tab svelte-1dkwspw", void 0, { "active": activeTab === "pickings" })}>📋 Ready to Ship (${escape_html(pickings.length)})</button> <button${attr_class("tab svelte-1dkwspw", void 0, { "active": activeTab === "shipments" })}>🚚 Shipments (${escape_html(shipments.length)})</button> <button${attr_class("tab svelte-1dkwspw", void 0, { "active": activeTab === "sync" })}>🔄 Sync History</button></div> `);
+    $$renderer2.push(`<!--]--> <button class="refresh-btn svelte-1dkwspw"${attr("disabled", loading, true)}>${escape_html("↻ Loading...")}</button></div></header> <div class="tabs svelte-1dkwspw"><button${attr_class("tab svelte-1dkwspw", void 0, { "active": activeTab === "pickings" })}>📋 Ready to Ship (${escape_html(pickings.length)})</button> <button${attr_class("tab svelte-1dkwspw", void 0, { "active": activeTab === "shipments" })}>🚚 Shipments (${escape_html(shipments.length)})</button> <button${attr_class("tab svelte-1dkwspw", void 0, { "active": activeTab === "sync" })}>🔄 Sync History</button> <button${attr_class("tab svelte-1dkwspw", void 0, { "active": activeTab === "scraper" })}>🤖 Scraper Admin</button></div> `);
     if (pickings.length === 0 && shipments.length === 0) {
       $$renderer2.push("<!--[-->");
       $$renderer2.push(`<div class="loading svelte-1dkwspw">Loading shipping data...</div>`);

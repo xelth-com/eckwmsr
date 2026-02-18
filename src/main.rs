@@ -11,7 +11,7 @@ mod web;
 
 use axum::{
     middleware::from_fn_with_state,
-    routing::{delete, get, post, put},
+    routing::{any, delete, get, post, put},
     Json, Router,
 };
 use serde::Serialize;
@@ -151,8 +151,10 @@ async fn main() {
     let _ = delivery_service;
 
     // Seed setup account if no users exist
-    let setup_password = db::seed_setup_account(&db_conn).await;
-    if let Some(ref pw) = setup_password {
+    let setup_password = Arc::new(tokio::sync::RwLock::new(
+        db::seed_setup_account(&db_conn).await,
+    ));
+    if let Some(ref pw) = *setup_password.read().await {
         info!("=================================================");
         info!("  FIRST RUN: Setup account created");
         info!("  Email: admin@setup.local");
@@ -295,6 +297,9 @@ async fn main() {
         .route("/pull", post(handlers::mesh_sync::pull_handler))
         .route("/push", post(handlers::mesh_sync::push_handler));
 
+    // Scraper proxy (JWT-protected): /S/* → http://127.0.0.1:3211/*
+    // Auth check is done inside the handler via the middleware injected via route_layer below.
+
     // Build the main router — strict /E prefix for microservice deployment
     let app = Router::new()
         // Health check (public)
@@ -312,6 +317,9 @@ async fn main() {
         .nest("/E/api", api_routes)
         // RMA routes (root level, matching Go router)
         .nest("/E/rma", protected_rma_routes)
+        // Scraper proxy: /S/* → http://127.0.0.1:3211/* (auth inside handler)
+        .route("/S", any(handlers::scraper_proxy::proxy_handler))
+        .route("/S/*path", any(handlers::scraper_proxy::proxy_handler))
         // Fallback for static files (SPA frontend)
         .fallback(web::static_handler)
         .with_state(app_state);

@@ -1,4 +1,5 @@
 <script>
+    import { onMount } from 'svelte';
     import { authStore } from '$lib/stores/authStore';
     import { goto } from '$app/navigation';
     import { base } from '$app/paths';
@@ -7,6 +8,30 @@
     let password = '';
     let error = '';
     let isLoading = false;
+
+    let needsSetup = false;
+    let setupEmail = '';
+    let setupPassword = '';
+
+    onMount(async () => {
+        try {
+            const pathBase = base || '/E';
+            const res = await fetch(`${pathBase}/auth/setup-status`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.needsSetup) {
+                    needsSetup = true;
+                    setupEmail = data.email;
+                    setupPassword = data.password;
+                    // Pre-fill the login form with setup credentials
+                    email = data.email;
+                    password = data.password;
+                }
+            }
+        } catch (e) {
+            // ignore — server may not expose setup-status
+        }
+    });
 
     async function handleLogin() {
         if (!email || !password) {
@@ -20,7 +45,6 @@
         const result = await authStore.login(email, password);
 
         if (result.success) {
-            // FIX: Robust base path handling. If base is empty, default to '/E' for production consistency.
             const pathBase = base || '/E';
             goto(`${pathBase}/dashboard`);
         } else {
@@ -34,8 +58,30 @@
     <div class="login-card">
         <div class="logo">
             <h1>eckWMS</h1>
-            <span class="version">GO Edition</span>
+            {#if needsSetup}
+                <span class="version setup-mode">First Run</span>
+            {:else}
+                <span class="version">Rust Edition</span>
+            {/if}
         </div>
+
+        {#if needsSetup}
+            <div class="setup-banner">
+                <div class="setup-title">Initial Setup</div>
+                <p>No users exist yet. Use the temporary credentials below to log in, then create your admin account.</p>
+                <div class="setup-creds">
+                    <div class="cred-row">
+                        <span class="cred-label">Email</span>
+                        <span class="cred-value">{setupEmail}</span>
+                    </div>
+                    <div class="cred-row">
+                        <span class="cred-label">Password</span>
+                        <span class="cred-value mono">{setupPassword}</span>
+                    </div>
+                </div>
+                <p class="setup-hint">This banner disappears once you create a real admin account.</p>
+            </div>
+        {/if}
 
         <form on:submit|preventDefault={handleLogin}>
             <div class="form-group">
@@ -87,7 +133,7 @@
         padding: 2.5rem;
         border-radius: 8px;
         width: 100%;
-        max-width: 400px;
+        max-width: 420px;
         box-shadow: 0 10px 25px rgba(0,0,0,0.5);
         border: 1px solid #444;
     }
@@ -110,6 +156,72 @@
         color: #666;
         text-transform: uppercase;
         letter-spacing: 2px;
+    }
+
+    .setup-mode {
+        color: #e8a838;
+    }
+
+    .setup-banner {
+        background: rgba(232, 168, 56, 0.08);
+        border: 1px solid rgba(232, 168, 56, 0.3);
+        border-radius: 6px;
+        padding: 1rem 1.2rem;
+        margin-bottom: 1.5rem;
+        font-size: 0.85rem;
+        color: #ccc;
+    }
+
+    .setup-title {
+        font-weight: 700;
+        color: #e8a838;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-size: 0.75rem;
+        margin-bottom: 0.4rem;
+    }
+
+    .setup-banner p {
+        margin: 0 0 0.75rem 0;
+        line-height: 1.5;
+    }
+
+    .setup-creds {
+        background: rgba(0,0,0,0.3);
+        border-radius: 4px;
+        padding: 0.6rem 0.8rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .cred-row {
+        display: flex;
+        gap: 0.75rem;
+        align-items: baseline;
+        padding: 0.2rem 0;
+    }
+
+    .cred-label {
+        color: #888;
+        min-width: 60px;
+        font-size: 0.8rem;
+    }
+
+    .cred-value {
+        color: #fff;
+        font-size: 0.9rem;
+    }
+
+    .cred-value.mono {
+        font-family: monospace;
+        font-size: 1rem;
+        color: #e8a838;
+        letter-spacing: 1px;
+    }
+
+    .setup-hint {
+        color: #666;
+        font-size: 0.78rem;
+        margin: 0;
     }
 
     .form-group {

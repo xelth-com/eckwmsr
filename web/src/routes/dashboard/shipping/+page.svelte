@@ -8,10 +8,79 @@
     let syncHistory = [];
     let loading = true;
     let error = null;
-    let activeTab = "pickings"; // 'pickings', 'shipments', or 'sync'
+    let activeTab = "pickings"; // 'pickings', 'shipments', 'sync', or 'scraper'
     let processingPickings = new Set();
     let isSyncingOpal = false; // State for OPAL sync
     let isSyncingDhl = false; // State for DHL sync
+
+    // ── Scraper Admin state ──────────────────────────────────────────────────
+    let scraperStatus = null;      // result of GET /S/debug
+    let scraperOnline = null;      // true/false/null (null = not checked yet)
+
+    let opalDebug = false;
+    let opalLimit = 10;
+    let opalRunning = false;
+    let opalResult = null;         // { success, count, orders, error, duration }
+
+    let dhlDebug = false;
+    let dhlLimit = 10;
+    let dhlRunning = false;
+    let dhlResult = null;
+
+    let opalJsonOpen = false;
+    let dhlJsonOpen = false;
+
+    async function loadScraperStatus() {
+        try {
+            scraperStatus = await api.get('/S/debug');
+            scraperOnline = true;
+        } catch {
+            scraperOnline = false;
+            scraperStatus = null;
+        }
+    }
+
+    async function testOpalFetch() {
+        opalRunning = true;
+        opalResult = null;
+        opalJsonOpen = false;
+        const t0 = Date.now();
+        try {
+            const res = await api.post('/S/api/opal/fetch', {
+                username: '',   // server reads from .env via Rust import, but scraper needs creds
+                password: '',
+                limit: opalLimit,
+                debug: opalDebug,
+                _from_env: true  // signal to use server-side env vars
+            });
+            opalResult = { ...res, duration: ((Date.now() - t0) / 1000).toFixed(1) };
+        } catch (e) {
+            opalResult = { success: false, error: e.message, duration: ((Date.now() - t0) / 1000).toFixed(1) };
+        } finally {
+            opalRunning = false;
+        }
+    }
+
+    async function testDhlFetch() {
+        dhlRunning = true;
+        dhlResult = null;
+        dhlJsonOpen = false;
+        const t0 = Date.now();
+        try {
+            const res = await api.post('/S/api/dhl/fetch', {
+                username: '',
+                password: '',
+                limit: dhlLimit,
+                debug: dhlDebug,
+                _from_env: true
+            });
+            dhlResult = { ...res, duration: ((Date.now() - t0) / 1000).toFixed(1) };
+        } catch (e) {
+            dhlResult = { success: false, error: e.message, duration: ((Date.now() - t0) / 1000).toFixed(1) };
+        } finally {
+            dhlRunning = false;
+        }
+    }
     let expandedShipments = new Set(); // Track which shipments are expanded
     let expandedSyncLogs = new Set(); // Track which sync logs are expanded
     let providersConfig = { opal: false, dhl: false }; // Provider availability
@@ -280,6 +349,13 @@ Copy this to ChatGPT/Claude for analysis
             on:click={() => (activeTab = "sync")}
         >
             🔄 Sync History
+        </button>
+        <button
+            class="tab"
+            class:active={activeTab === "scraper"}
+            on:click={() => { activeTab = "scraper"; if (scraperOnline === null) loadScraperStatus(); }}
+        >
+            🤖 Scraper Admin
         </button>
     </div>
 
@@ -1059,6 +1135,190 @@ Copy this to ChatGPT/Claude for analysis
                 </div>
             {/if}
         </div>
+    {:else if activeTab === "scraper"}
+        <div class="scraper-section">
+            <!-- Service Status Bar -->
+            <div class="scraper-status-bar">
+                <div class="status-left">
+                    <span class="status-dot"
+                        class:online={scraperOnline === true}
+                        class:offline={scraperOnline === false}
+                        class:unknown={scraperOnline === null}
+                    ></span>
+                    <span class="status-label">
+                        {#if scraperOnline === true}
+                            Playwright Scraper — running on port {scraperStatus?.port ?? 3211}
+                        {:else if scraperOnline === false}
+                            Scraper offline — start it: <code>node scraper/server.js</code>
+                        {:else}
+                            Scraper status unknown
+                        {/if}
+                    </span>
+                </div>
+                <button class="refresh-btn small" on:click={loadScraperStatus}>
+                    ↻ Check Status
+                </button>
+            </div>
+
+            {#if scraperOnline === true && scraperStatus}
+                <div class="endpoints-hint">
+                    {#each scraperStatus.endpoints as ep}
+                        <span class="ep-badge">
+                            <span class="ep-method">{ep.method}</span>
+                            <span class="ep-path">{ep.path}</span>
+                        </span>
+                    {/each}
+                </div>
+            {/if}
+
+            <!-- Provider cards -->
+            <div class="provider-cards">
+
+                <!-- OPAL card -->
+                <div class="provider-card opal-card">
+                    <div class="card-header">
+                        <span class="card-title">🟢 OPAL Kurier</span>
+                        <span class="card-hint">opal-kurier.de</span>
+                    </div>
+
+                    <div class="card-controls">
+                        <label class="control-row">
+                            <span>Limit</span>
+                            <select bind:value={opalLimit} disabled={opalRunning}>
+                                <option value={5}>5</option>
+                                <option value={10}>10</option>
+                                <option value={25}>25</option>
+                                <option value={50}>50</option>
+                            </select>
+                        </label>
+                        <label class="toggle-row">
+                            <input type="checkbox" bind:checked={opalDebug} disabled={opalRunning} />
+                            <span class="toggle-label" class:debug-on={opalDebug}>
+                                {opalDebug ? '🔍 Debug (headed)' : 'Headless'}
+                            </span>
+                        </label>
+                    </div>
+
+                    {#if opalDebug}
+                        <div class="debug-hint">
+                            Browser window will open with 600ms slow-motion. Watch the steps live.
+                        </div>
+                    {/if}
+
+                    <button
+                        class="run-btn opal-run"
+                        on:click={testOpalFetch}
+                        disabled={opalRunning || scraperOnline !== true}
+                    >
+                        {#if opalRunning}
+                            <span class="spinner">⏳</span> Running{opalDebug ? ' (watch browser)' : '...'}
+                        {:else}
+                            🚀 Run Fetch
+                        {/if}
+                    </button>
+
+                    {#if opalResult}
+                        <div class="result-box" class:result-ok={opalResult.success} class:result-err={!opalResult.success}>
+                            {#if opalResult.success}
+                                <div class="result-summary">
+                                    ✅ {opalResult.count} orders fetched in {opalResult.duration}s
+                                </div>
+                            {:else}
+                                <div class="result-summary error">
+                                    ❌ {opalResult.error}
+                                </div>
+                            {/if}
+
+                            {#if opalResult.orders?.length}
+                                <button class="toggle-json" on:click={() => opalJsonOpen = !opalJsonOpen}>
+                                    {opalJsonOpen ? '▼' : '▶'} View JSON ({opalResult.orders.length} orders)
+                                </button>
+                                {#if opalJsonOpen}
+                                    <pre class="result-json">{JSON.stringify(opalResult.orders, null, 2)}</pre>
+                                {/if}
+                            {/if}
+                        </div>
+                    {/if}
+                </div>
+
+                <!-- DHL card -->
+                <div class="provider-card dhl-card">
+                    <div class="card-header">
+                        <span class="card-title">🟡 DHL</span>
+                        <span class="card-hint">geschaeftskunden.dhl.de</span>
+                    </div>
+
+                    <div class="card-controls">
+                        <label class="control-row">
+                            <span>Limit</span>
+                            <select bind:value={dhlLimit} disabled={dhlRunning}>
+                                <option value={5}>5</option>
+                                <option value={10}>10</option>
+                                <option value={25}>25</option>
+                                <option value={50}>50</option>
+                            </select>
+                        </label>
+                        <label class="toggle-row">
+                            <input type="checkbox" bind:checked={dhlDebug} disabled={dhlRunning} />
+                            <span class="toggle-label" class:debug-on={dhlDebug}>
+                                {dhlDebug ? '🔍 Debug (headed)' : 'Headless'}
+                            </span>
+                        </label>
+                    </div>
+
+                    {#if dhlDebug}
+                        <div class="debug-hint">
+                            Browser window will open with 600ms slow-motion. Watch the steps live.
+                        </div>
+                    {/if}
+
+                    <button
+                        class="run-btn dhl-run"
+                        on:click={testDhlFetch}
+                        disabled={dhlRunning || scraperOnline !== true}
+                    >
+                        {#if dhlRunning}
+                            <span class="spinner">⏳</span> Running{dhlDebug ? ' (watch browser)' : '...'}
+                        {:else}
+                            🚀 Run Fetch
+                        {/if}
+                    </button>
+
+                    {#if dhlResult}
+                        <div class="result-box" class:result-ok={dhlResult.success} class:result-err={!dhlResult.success}>
+                            {#if dhlResult.success}
+                                <div class="result-summary">
+                                    ✅ {dhlResult.count} shipments fetched in {dhlResult.duration}s
+                                </div>
+                            {:else}
+                                <div class="result-summary error">
+                                    ❌ {dhlResult.error}
+                                </div>
+                            {/if}
+
+                            {#if dhlResult.shipments?.length}
+                                <button class="toggle-json" on:click={() => dhlJsonOpen = !dhlJsonOpen}>
+                                    {dhlJsonOpen ? '▼' : '▶'} View JSON ({dhlResult.shipments.length} shipments)
+                                </button>
+                                {#if dhlJsonOpen}
+                                    <pre class="result-json">{JSON.stringify(dhlResult.shipments, null, 2)}</pre>
+                                {/if}
+                            {/if}
+                        </div>
+                    {/if}
+                </div>
+
+            </div><!-- /provider-cards -->
+
+            <!-- Hint about credentials -->
+            <div class="creds-note">
+                Credentials are read from server <code>.env</code>
+                (OPAL_USERNAME / DHL_USERNAME). To test with different creds,
+                use curl directly on <code>POST /S/api/opal/fetch</code> with
+                <code>"username"</code> and <code>"password"</code> fields.
+            </div>
+
+        </div><!-- /scraper-section -->
     {/if}
 </div>
 
@@ -1737,5 +1997,252 @@ Copy this to ChatGPT/Claude for analysis
         font-size: 0.75rem;
         line-height: 1.4;
         margin-top: 0.5rem;
+    }
+
+    /* ── Scraper Admin tab ─────────────────────────────────────────── */
+    .scraper-section {
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+    }
+
+    .scraper-status-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 0.8rem 1.2rem;
+    }
+
+    .status-left {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-size: 0.9rem;
+        color: #ccc;
+    }
+
+    .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .status-dot.online  { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    .status-dot.offline { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
+    .status-dot.unknown { background: #6b7280; }
+
+    .status-label code {
+        background: #2a2a2a;
+        border-radius: 3px;
+        padding: 0.1rem 0.4rem;
+        font-size: 0.8rem;
+        color: #4a69bd;
+    }
+
+    .refresh-btn.small {
+        padding: 0.4rem 0.8rem;
+        font-size: 0.8rem;
+    }
+
+    .endpoints-hint {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .ep-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        background: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 4px;
+        padding: 0.25rem 0.6rem;
+        font-size: 0.75rem;
+    }
+
+    .ep-method {
+        color: #4a69bd;
+        font-weight: 700;
+        font-family: monospace;
+    }
+
+    .ep-path {
+        color: #888;
+        font-family: monospace;
+    }
+
+    .provider-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+        gap: 1.25rem;
+    }
+
+    .provider-card {
+        background: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 10px;
+        padding: 1.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .opal-card { border-color: #166534; }
+    .dhl-card  { border-color: #713f12; }
+
+    .card-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+    }
+
+    .card-title {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #fff;
+    }
+
+    .card-hint {
+        font-size: 0.75rem;
+        color: #666;
+        font-family: monospace;
+    }
+
+    .card-controls {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+    }
+
+    .control-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.85rem;
+        color: #aaa;
+    }
+
+    .control-row select {
+        background: #2a2a2a;
+        color: #e0e0e0;
+        border: 1px solid #444;
+        border-radius: 4px;
+        padding: 0.3rem 0.5rem;
+        font-size: 0.85rem;
+        cursor: pointer;
+    }
+
+    .toggle-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+        font-size: 0.85rem;
+    }
+
+    .toggle-label { color: #888; }
+    .toggle-label.debug-on { color: #fbbf24; font-weight: 600; }
+
+    .debug-hint {
+        font-size: 0.8rem;
+        color: #fbbf24;
+        background: rgba(251,191,36,0.08);
+        border: 1px solid rgba(251,191,36,0.2);
+        border-radius: 4px;
+        padding: 0.5rem 0.75rem;
+    }
+
+    .run-btn {
+        padding: 0.75rem 1.5rem;
+        border-radius: 6px;
+        border: none;
+        font-weight: 700;
+        font-size: 0.95rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .opal-run {
+        background: #166534;
+        color: #4ade80;
+        border: 1px solid #22c55e;
+    }
+
+    .opal-run:hover:not(:disabled) { background: #14532d; }
+
+    .dhl-run {
+        background: #713f12;
+        color: #fbbf24;
+        border: 1px solid #f59e0b;
+    }
+
+    .dhl-run:hover:not(:disabled) { background: #92400e; }
+
+    .run-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+    .spinner { display: inline-block; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .result-box {
+        border-radius: 6px;
+        border: 1px solid #333;
+        padding: 0.75rem 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .result-box.result-ok  { border-color: #22c55e; background: rgba(34,197,94,0.05); }
+    .result-box.result-err { border-color: #ef4444; background: rgba(239,68,68,0.05); }
+
+    .result-summary { font-size: 0.9rem; color: #e0e0e0; }
+    .result-summary.error { color: #ff6b6b; }
+
+    .toggle-json {
+        align-self: flex-start;
+        background: none;
+        border: none;
+        color: #4a69bd;
+        font-size: 0.82rem;
+        cursor: pointer;
+        padding: 0;
+        font-family: monospace;
+    }
+
+    .toggle-json:hover { text-decoration: underline; }
+
+    .result-json {
+        background: #141414;
+        color: #4a69bd;
+        border: 1px solid #2a2a2a;
+        border-radius: 4px;
+        padding: 0.75rem;
+        font-size: 0.72rem;
+        line-height: 1.5;
+        overflow: auto;
+        max-height: 400px;
+        white-space: pre;
+    }
+
+    .creds-note {
+        font-size: 0.8rem;
+        color: #555;
+        text-align: center;
+    }
+
+    .creds-note code {
+        background: #2a2a2a;
+        border-radius: 3px;
+        padding: 0.1rem 0.35rem;
+        color: #888;
     }
 </style>

@@ -36,8 +36,9 @@ pub struct AppState {
     pub ws_hub: WsHub,
     /// Mesh WebSocket hub for server-to-server signaling
     pub mesh_hub: MeshHub,
-    /// Temporary setup password shown on login page when no users exist
-    pub setup_password: Option<String>,
+    /// Temporary setup password shown on login page when no users exist.
+    /// Wrapped in RwLock so it can be cleared at runtime after real user is created.
+    pub setup_password: Arc<RwLock<Option<String>>>,
     /// Server Ed25519 identity for device pairing QR codes
     pub server_identity: ServerIdentity,
     /// Embedded PostgreSQL instance — must stay alive for the process lifetime
@@ -219,4 +220,41 @@ pub async fn seed_setup_account(db: &DatabaseConnection) -> Option<String> {
     } else {
         None
     }
+}
+
+/// Delete the setup account if real users now exist, and clear the in-memory password.
+/// Call this after any real user is created or synced in.
+pub async fn cleanup_setup_if_real_users(
+    db: &DatabaseConnection,
+    setup_password: &Arc<RwLock<Option<String>>>,
+) {
+    use sea_orm::{ColumnTrait, QueryFilter, PaginatorTrait};
+
+    // Count non-setup users
+    let real_count = user::Entity::find()
+        .filter(user::Column::Email.ne("admin@setup.local"))
+        .filter(user::Column::DeletedAt.is_null())
+        .count(db)
+        .await
+        .unwrap_or(0);
+
+    if real_count == 0 {
+        return; // No real users yet, keep setup account
+    }
+
+    // Delete the setup account
+    let deleted = user::Entity::delete_many()
+        .filter(user::Column::Email.eq("admin@setup.local"))
+        .exec(db)
+        .await;
+
+    match deleted {
+        Ok(res) if res.rows_affected > 0 => {
+            tracing::info!("Setup account removed — real users exist now.");
+        }
+        _ => {}
+    }
+
+    // Clear in-memory password so login page shows "Rust Edition"
+    *setup_password.write().await = None;
 }

@@ -37,7 +37,7 @@ pub struct ErrorResponse {
 pub async fn setup_status(
     State(state): State<Arc<AppState>>,
 ) -> Json<serde_json::Value> {
-    match &state.setup_password {
+    match &*state.setup_password.read().await {
         Some(pw) => Json(serde_json::json!({
             "needsSetup": true,
             "email": "admin@setup.local",

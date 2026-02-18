@@ -12,7 +12,16 @@ function _page($$renderer, $$props) {
     let email = "";
     let password = "";
     let isLoading = false;
-    $$renderer2.push(`<div class="login-container svelte-1x05zx6"><div class="login-card svelte-1x05zx6"><div class="logo svelte-1x05zx6"><h1 class="svelte-1x05zx6">eckWMS</h1> <span class="version svelte-1x05zx6">GO Edition</span></div> <form><div class="form-group svelte-1x05zx6"><label for="email" class="svelte-1x05zx6">Email</label> <input type="text" id="email"${attr("value", email)} placeholder="operator@eckwms.local"${attr("disabled", isLoading, true)} class="svelte-1x05zx6"/></div> <div class="form-group svelte-1x05zx6"><label for="password" class="svelte-1x05zx6">Password</label> <input type="password" id="password"${attr("value", password)} placeholder="••••••••"${attr("disabled", isLoading, true)} class="svelte-1x05zx6"/></div> `);
+    $$renderer2.push(`<div class="login-container svelte-1x05zx6"><div class="login-card svelte-1x05zx6"><div class="logo svelte-1x05zx6"><h1 class="svelte-1x05zx6">eckWMS</h1> `);
+    {
+      $$renderer2.push("<!--[!-->");
+      $$renderer2.push(`<span class="version svelte-1x05zx6">Rust Edition</span>`);
+    }
+    $$renderer2.push(`<!--]--></div> `);
+    {
+      $$renderer2.push("<!--[!-->");
+    }
+    $$renderer2.push(`<!--]--> <form><div class="form-group svelte-1x05zx6"><label for="email" class="svelte-1x05zx6">Email</label> <input type="text" id="email"${attr("value", email)} placeholder="operator@eckwms.local"${attr("disabled", isLoading, true)} class="svelte-1x05zx6"/></div> <div class="form-group svelte-1x05zx6"><label for="password" class="svelte-1x05zx6">Password</label> <input type="password" id="password"${attr("value", password)} placeholder="••••••••"${attr("disabled", isLoading, true)} class="svelte-1x05zx6"/></div> `);
     {
       $$renderer2.push("<!--[!-->");
     }

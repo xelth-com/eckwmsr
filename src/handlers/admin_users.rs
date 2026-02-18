@@ -136,6 +136,9 @@ pub async fn create_user(
         }
     })?;
 
+    // Remove setup account if it exists — a real user now takes over
+    crate::db::cleanup_setup_if_real_users(&state.db, &state.setup_password).await;
+
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({
