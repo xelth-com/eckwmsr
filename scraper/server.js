@@ -126,6 +126,55 @@ async function dhlLogin(page, targetUrl, username, password) {
     }
 }
 
+// Exact Online login sequence (start.exactonline.de, no 2FA)
+async function exactLogin(page, targetUrl, username, password) {
+    console.log(`[Exact] Navigating to ${targetUrl}`);
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForTimeout(3000);
+
+    // Accept cookie banner if present
+    try {
+        const cookieBtn = page.locator('button:has-text("Akzeptieren"), button:has-text("Accept"), #truste-consent-button');
+        if (await cookieBtn.count() > 0 && await cookieBtn.first().isVisible()) {
+            await cookieBtn.first().click();
+            await page.waitForTimeout(1000);
+        }
+    } catch (e) { /* no banner */ }
+
+    // Fill username
+    const userField = page.locator('input[name*="UserName"], input[type="text"], input[type="email"], #LoginForm_UserName').first();
+    if (await userField.count() === 0) {
+        console.warn('[Exact] Username field not found');
+        return;
+    }
+    await userField.fill(username);
+    await page.waitForTimeout(500);
+
+    // Exact sometimes uses a two-step flow — password may not be visible yet
+    let passField = page.locator('input[name*="Password"], input[type="password"], #LoginForm_Password').first();
+    if (await passField.count() === 0 || !(await passField.isVisible())) {
+        const nextBtn = page.locator('button[type="submit"], input[type="submit"], .btn-primary').first();
+        if (await nextBtn.count() > 0) {
+            await nextBtn.click();
+            await page.waitForTimeout(2000);
+        }
+        passField = page.locator('input[name*="Password"], input[type="password"], #LoginForm_Password').first();
+    }
+
+    if (await passField.count() > 0 && await passField.isVisible()) {
+        await passField.fill(password);
+        await page.waitForTimeout(500);
+        const loginBtn = page.locator('button[type="submit"], input[type="submit"], #LoginForm_btnSave, .btn-primary').first();
+        if (await loginBtn.count() > 0) await loginBtn.click();
+    } else {
+        console.warn('[Exact] Password field not found');
+    }
+
+    console.log('[Exact] Submitted login form, waiting for dashboard...');
+    await page.waitForTimeout(8000);
+    console.log(`[Exact] URL after login: ${page.url()}`);
+}
+
 // ─── DHL: Create Shipment ──────────────────────────────────────────────────
 app.post('/api/dhl/create', (req, res) => {
     runScraper(req, res, async (page, data) => {
@@ -577,6 +626,45 @@ function parseOpalDetail(text) {
     return order;
 }
 
+// ─── EXACT ONLINE: Fetch Inventory (Stub) ─────────────────────────────────
+app.post('/api/exact/inventory/fetch', (req, res) => {
+    runScraper(req, res, async (page, data) => {
+        const username = data.username || (data._from_env ? process.env.EXACT_USERNAME : '') || '';
+        const password = data.password || (data._from_env ? process.env.EXACT_PASSWORD : '') || '';
+        const targetUrl = data.url || process.env.EXACT_URL || 'https://start.exactonline.de';
+
+        await exactLogin(page, targetUrl, username, password);
+
+        // TODO: Navigate to inventory/stock view and parse table
+        const pageText = await page.evaluate(() => document.body?.innerText?.substring(0, 500) || 'EMPTY');
+
+        return {
+            success: true,
+            message: 'Logged in successfully. Navigation paths for inventory pending.',
+            current_url: page.url(),
+            text_preview: pageText
+        };
+    });
+});
+
+// ─── EXACT ONLINE: Create Quotation / Kostenvoranschlag (Stub) ─────────────
+app.post('/api/exact/quotation/create', (req, res) => {
+    runScraper(req, res, async (page, data) => {
+        const username = data.username || (data._from_env ? process.env.EXACT_USERNAME : '') || '';
+        const password = data.password || (data._from_env ? process.env.EXACT_PASSWORD : '') || '';
+        const targetUrl = data.url || process.env.EXACT_URL || 'https://start.exactonline.de';
+
+        await exactLogin(page, targetUrl, username, password);
+
+        // TODO: Navigate to Sales -> Quotations -> New and fill form
+        return {
+            success: true,
+            message: 'Logged in successfully. Navigation paths to create Kostenvoranschlag pending.',
+            current_url: page.url()
+        };
+    });
+});
+
 // ─── Debug / Info ─────────────────────────────────────────────────────────────
 
 // GET /debug — shows scraper info and available endpoints.
@@ -593,6 +681,8 @@ app.get('/debug', (req, res) => {
             { method: 'POST', path: '/api/opal/fetch',    desc: 'Fetch OPAL shipment list (supports debug:true)' },
             { method: 'POST', path: '/api/dhl/create',    desc: 'Create DHL shipment' },
             { method: 'POST', path: '/api/dhl/fetch',     desc: 'Fetch DHL shipment list via CSV (supports debug:true)' },
+            { method: 'POST', path: '/api/exact/inventory/fetch',  desc: 'Exact Online: fetch inventory (stub)' },
+            { method: 'POST', path: '/api/exact/quotation/create', desc: 'Exact Online: create Kostenvoranschlag (stub)' },
             { method: 'GET',  path: '/debug',             desc: 'This page' },
         ]
     });
