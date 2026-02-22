@@ -737,8 +737,54 @@ app.get('/debug', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3211;
-app.listen(PORT, () => {
-    console.log(`Eck Playwright Scraper Service running on port ${PORT}`);
-    console.log(`  Debug info: http://localhost:${PORT}/debug`);
-    console.log(`  Add "debug": true to any POST body to see the browser window`);
+const MAIN_HEALTH = process.env.MAIN_SERVER_URL
+    ? `${process.env.MAIN_SERVER_URL}/E/health`
+    : 'http://127.0.0.1:3210/E/health';
+
+// Wait for the main eckwmsr server to be available before starting.
+// The main server also owns the embedded PostgreSQL — no point running without it.
+async function waitForMainServer(maxMs = 60000) {
+    const start = Date.now();
+    console.log(`[Startup] Waiting for main server at ${MAIN_HEALTH} ...`);
+    while (Date.now() - start < maxMs) {
+        try {
+            const res = await fetch(MAIN_HEALTH);
+            if (res.ok) { console.log('[Startup] Main server is up.'); return true; }
+        } catch (_) {}
+        await new Promise(r => setTimeout(r, 2000));
+    }
+    return false;
+}
+
+// Periodic health check — exits if main server is unreachable for too long.
+function startHealthMonitor() {
+    const INTERVAL_MS  = 30_000; // check every 30s
+    const MAX_FAILURES = 3;      // exit after 3 consecutive failures (~90s)
+    let failures = 0;
+
+    setInterval(async () => {
+        try {
+            const res = await fetch(MAIN_HEALTH, { signal: AbortSignal.timeout(5000) });
+            if (res.ok) { failures = 0; return; }
+        } catch (_) {}
+        failures++;
+        console.warn(`[Health] Main server unreachable (${failures}/${MAX_FAILURES})`);
+        if (failures >= MAX_FAILURES) {
+            console.error('[Health] Main server unavailable. Shutting down scraper.');
+            process.exit(1);
+        }
+    }, INTERVAL_MS);
+}
+
+waitForMainServer(60_000).then(ok => {
+    if (!ok) {
+        console.error('[Startup] Main server did not respond within 60s. Exiting.');
+        process.exit(1);
+    }
+    app.listen(PORT, () => {
+        console.log(`Eck Playwright Scraper Service running on port ${PORT}`);
+        console.log(`  Debug info: http://localhost:${PORT}/debug`);
+        console.log(`  Add "debug": true to any POST body to see the browser window`);
+    });
+    startHealthMonitor();
 });

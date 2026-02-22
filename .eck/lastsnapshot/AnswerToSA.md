@@ -21,3 +21,6 @@
 ## Примечание
 В `eckwmsr/.env` уже добавлены `ZOHO_EMAIL`, `ZOHO_PASSWORD`, `ZOHO_URL`.
 Полная реализация синка тикетов живёт в `zoho-clicker/scraper/` (PG, pagination, incremental sync).
+
+
+[SYSTEM: EMBEDDED]
