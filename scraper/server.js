@@ -152,6 +152,46 @@ async function exactLogin(page, targetUrl, username, password) {
     console.log(`[Exact] URL after login: ${page.url()}`);
 }
 
+// Zoho Desk login sequence
+async function zohoLogin(page, targetUrl, username, password) {
+    console.log(`[Zoho] Navigating to ${targetUrl}`);
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForTimeout(3000);
+
+    const currentUrl = page.url();
+    if (currentUrl.includes('accounts.zoho')) {
+        console.log('[Zoho] Login page detected. Proceeding with authentication...');
+
+        // Step 1: Email
+        await page.waitForSelector('#login_id', { timeout: 15000 });
+        await page.fill('#login_id', username);
+        await page.click('#nextbtn');
+        console.log('[Zoho] Email submitted, waiting for password field...');
+        await page.waitForTimeout(2000);
+
+        // Step 2: Password
+        await page.waitForSelector('#password', { timeout: 15000 });
+        await page.fill('#password', password);
+        await page.click('#nextbtn');
+        console.log('[Zoho] Password submitted, waiting for redirect back to Desk...');
+        await page.waitForTimeout(8000);
+
+        // Handle "Trust this browser" / "Remind me later" popup if it appears
+        try {
+            const trustBtn = page.locator('button:has-text("Remind me later"), button:has-text("Später erinnern"), .remind_me_later');
+            if (await trustBtn.count() > 0 && await trustBtn.first().isVisible()) {
+                await trustBtn.first().click();
+                await page.waitForTimeout(3000);
+            }
+        } catch (e) {}
+    } else {
+        console.log('[Zoho] Already logged in or no login redirect occurred.');
+    }
+
+    await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
+    console.log(`[Zoho] Final URL after login: ${page.url()}`);
+}
+
 // ─── DHL: Create Shipment ──────────────────────────────────────────────────
 app.post('/api/dhl/create', (req, res) => {
     runScraper(req, res, async (page, data) => {
@@ -642,6 +682,36 @@ app.post('/api/exact/quotation/create', (req, res) => {
     });
 });
 
+// ─── ZOHO DESK: Fetch Tickets (Stub) ──────────────────────────────────────
+app.post('/api/zoho/tickets', (req, res) => {
+    runScraper(req, res, async (page, data) => {
+        const username = data.username || (data._from_env ? process.env.ZOHO_EMAIL : '') || '';
+        const password = data.password || (data._from_env ? process.env.ZOHO_PASSWORD : '') || '';
+        const targetUrl = data.url || process.env.ZOHO_URL || 'https://desk.inbodysupport.eu/agent/';
+
+        if (!username || !password) {
+            throw new Error('ZOHO_EMAIL or ZOHO_PASSWORD missing. Provide in body or .env');
+        }
+
+        await zohoLogin(page, targetUrl, username, password);
+
+        // After login Zoho may redirect to portal — navigate explicitly to agent view
+        if (!page.url().includes('/agent/')) {
+            await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
+        }
+
+        const pageText = await page.evaluate(() => document.body?.innerText?.substring(0, 1000) || 'EMPTY');
+
+        return {
+            success: true,
+            message: 'Logged in successfully. Navigation paths for tickets pending.',
+            current_url: page.url(),
+            text_preview: pageText
+        };
+    });
+});
+
 // ─── Debug / Info ─────────────────────────────────────────────────────────────
 
 // GET /debug — shows scraper info and available endpoints.
@@ -660,6 +730,7 @@ app.get('/debug', (req, res) => {
             { method: 'POST', path: '/api/dhl/fetch',     desc: 'Fetch DHL shipment list via CSV (supports debug:true)' },
             { method: 'POST', path: '/api/exact/inventory/fetch',  desc: 'Exact Online: fetch inventory (stub)' },
             { method: 'POST', path: '/api/exact/quotation/create', desc: 'Exact Online: create Kostenvoranschlag (stub)' },
+            { method: 'POST', path: '/api/zoho/tickets',  desc: 'Zoho Desk: login and fetch tickets (stub)' },
             { method: 'GET',  path: '/debug',             desc: 'This page' },
         ]
     });
