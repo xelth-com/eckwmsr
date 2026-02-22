@@ -1,62 +1,8 @@
 Eck Playwright Scraper Service running on port 3211
-[OPAL] Parsed: OCU-998-512895 - InBody Deutschland
-[OPAL] Fetched 1 orders
-[OPAL] Parsed: OCU-998-513065 - InBody Deutschland
-[OPAL] Fetched 1 orders
-[OPAL] Parsed: OCU-998-513065 - InBody Deutschland
-[OPAL] Fetched 1 orders
-[OPAL] Parsed: OCU-998-513065 - InBody Deutschland
-[OPAL] Fetched 1 orders
-[OPAL] Parsed: OCU-998-513065 - InBody Deutschland
-[OPAL] Fetched 1 orders
-[OPAL] Parsed: OCU-998-513065 - InBody Deutschland
-[OPAL] Parsed: OCU-998-512895 - InBody Deutschland
-[OPAL] Parsed: OCU-998-512712 - InBody Deutschland
-[OPAL] Parsed: OCU-998-512751 - Clever Fit Holzgerlingen
-[OPAL] Parsed: OCU-998-512694 - SC Staig
-[OPAL] Parsed: OCU-998-512600 - InBody Deutschland
-[OPAL] Parsed: OCU-998-512573 - Ernährungsberatung Simone Pfrommer
-[OPAL] Parsed: OCU-998-512379 - InBody Deutschland
-[OPAL] Parsed: OCU-998-512547 - Bundesgesellschaft für Endlagerung GmbH
-[OPAL] Parsed: OCU-998-512436 - Dörthe Hölper
-[OPAL] Parsed:  - Doktor Bernd Hölper
-[OPAL] Parsed: OCU-998-512360 - Sportsfreund Fitness Oststeinbek
-[OPAL] Parsed: OCU-998-512328 - Life Fit & Vital GmbH
-[OPAL] Parsed: OCU-998-512331 - In Body Deutschland
-[OPAL] Parsed: OCU-998-512300 - InBody Deutschland
-[OPAL] Parsed: OCU-998-512149 - InBody Deutschland
-[OPAL] Parsed: OCU-998-512148 - InBody Deutschland
-[OPAL] Parsed: OCU-998-512150 - Rückgrat Fitness und Wellness
-[OPAL] Parsed: OCU-998-512037 - Claudia Kobs
-[OPAL] Parsed: OCU-998-511590 - Fitness Park Stuhr
-[OPAL] Parsed: OCU-998-511484 - InBody Deutschland
-[OPAL] Parsed: OCU-998-511436 - InBody Deutschland
-[OPAL] Parsed: OCU-998-511413 - InBody Deutschland
-[OPAL] Parsed: OCU-998-511439 - Life Park Max
-[OPAL] Parsed: OCU-998-511217 - PHYSIOMed Hecker gesundheitszentrum
-[OPAL] Parsed: OCU-998-511138 - InBody Deutschland
-[OPAL] Parsed: OCU-998-511131 - InBody Deutschland
-[OPAL] Parsed: OCU-998-511089 - Fitbox Berlin Bergmannkiez
-[OPAL] Parsed:  - InBody Deutschland
-[OPAL] Parsed: OCU-998-510703 - InBody Deutschland
-[OPAL] Parsed: OCU-998-510729 - Myleo CrossFit
-[OPAL] Parsed: OCU-998-510727 - Injoy Dettingen Hirsch & Fritz GBR
-[OPAL] Parsed: OCU-998-510725 - Prime Time Fitness
-[OPAL] Parsed: OCU-998-510722 - Sportsfreund Fitness Oststeinbek GmbH
-[OPAL] Parsed: OCU-998-510581 - Fitnessstudio Arena 22
-[OPAL] Parsed: OCU-998-510368 - InBody Deutschland
-[OPAL] Parsed: OCU-998-510397 - KONA Trade GmbH
-[OPAL] Parsed: OCU-998-510376 - Orthopädie und Sport
-[OPAL] Parsed: OCU-998-510207 - InBody Deutschland
-[OPAL] Parsed: OCU-998-510113 - Inbody Europe B.V.
-[OPAL] Parsed: OCU-998-509999 - InBody Deutschland
-[OPAL] Parsed: OCU-998-509996 - InBody Deutschland
-[OPAL] Parsed: OCU-998-509865 - InBody Deutschland
-[OPAL] Parsed: OCU-998-509866 - Fitness&Wellness&Gesundheit GmbH
-[OPAL] Parsed: OCU-998-509621 - ML-Sportwelt
-[OPAL] Parsed: OCU-998-509569 - Praxis Dr. Nikola Blajic
-[OPAL] Parsed: OCU-998-509479 - Logo Fit
-[OPAL] Parsed: OCU-998-509426 - Inbody Europe B.V.
-[OPAL] Parsed: OCU-998-509242 - InBody Deutschland
-[OPAL] Parsed: OCU-998-509241 - InBody Deutschland
-[OPAL] Fetched 50 orders
+  Debug info: http://localhost:3211/debug
+  Add "debug": true to any POST body to see the browser window
+[Scraper] DEBUG MODE — browser window will be visible
+[Exact] Navigating to https://start.exactonline.de
+[Exact] Clicked Weiter, waiting for Azure B2C redirect...
+[Exact] Clicked Anmelden, waiting for dashboard...
+[Exact] URL after login: https://login.exact.com/889fd096-de93-43fe-8349-1658fdd7143a/B2C_1A_UnifiedSignin/api/SelfAsserted/confirmed?csrf_token=dDJZYysxRldWcDIwY0hPS0I2Y09XWnBoQnFVOUJZMDR0REFOSlFlMlh0MVhQMjNCalV0SVVtdTY5VFFhQ2xNLzhvQ0x5KzNudnhoY01wTE1zYXJQdnc9PTsyMDI2LTAyLTIxVDE5OjAxOjAyLjYxODExODhaO1hZU0FNYlQ2S3hybDFXdG1GOWxPRlE9PTt7IlRhcmdldEVudGl0eSI6IkZldGNoVXNlckFnZW50IiwiT3JjaGVzdHJhdGlvblN0ZXAiOjN9&tx=StateProperties=eyJUSUQiOiI2ZmQ0ZDJjNy1jODA4LTQ4YzUtODQwNC1lMjhkYTAxNjZkM2YifQ&p=B2C_1A_UnifiedSignin&diags=%7B%22pageViewId%22%3A%222e16c4f4-73fc-4507-a353-6b0c0aa6a414%22%2C%22pageId%22%3A%22SelfAsserted%22%2C%22trace%22%3A%5B%7B%22ac%22%3A%22T005%22%2C%22acST%22%3A1771700463%2C%22acD%22%3A7%7D%2C%7B%22ac%22%3A%22T021%20-%20URL%3Ahttps%3A%2F%2Fprd10831exactidentitysa.blob.core.windows.net%2Froot%2FPages%2FfetchUserAgent.html%22%2C%22acST%22%3A1771700463%2C%22acD%22%3A54%7D%2C%7B%22ac%22%3A%22T019%22%2C%22acST%22%3A1771700463%2C%22acD%22%3A4%7D%2C%7B%22ac%22%3A%22T004%22%2C%22acST%22%3A1771700463%2C%22acD%22%3A2%7D%2C%7B%22ac%22%3A%22T003%22%2C%22acST%22%3A1771700463%2C%22acD%22%3A2%7D%2C%7B%22ac%22%3A%22T035%22%2C%22acST%22%3A1771700463%2C%22acD%22%3A0%7D%2C%7B%22ac%22%3A%22T030Online%22%2C%22acST%22%3A1771700463%2C%22acD%22%3A0%7D%2C%7B%22ac%22%3A%22T017T010%22%2C%22acST%22%3A1771700463%2C%22acD%22%3A105%7D%2C%7B%22ac%22%3A%22T002%22%2C%22acST%22%3A1771700463%2C%22acD%22%3A0%7D%2C%7B%22ac%22%3A%22T017T010%22%2C%22acST%22%3A1771700463%2C%22acD%22%3A106%7D%5D%7D

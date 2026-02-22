@@ -1,30 +1,32 @@
-# Exact Online Integration Stub — Done
+# Zoho Desk Scraper — Done
 
-## What was added to `scraper/server.js`
+## Разведка (Chrome MCP + Playwright probe)
+- Zoho login: `#login_id` + `#nextbtn` (Weiter), затем `#password` + `#nextbtn` (Anmelden)
+- После логина Zoho бросает на portal — нужна явная навигация на `/agent/`
+- Внутренний API: `GET /supportapi/zd/inbodyeu/api/v1/tickets?departmentId=53451000019414029&orgId=20078282365`
+- Auth: сессионные cookies (без отдельного token) — работает через `fetch(..., {credentials:'include'})` из Playwright page context
 
-### `exactLogin(page, targetUrl, username, password)`
-Handles authentication on `start.exactonline.de`:
-- Navigates to the target URL and waits for SPA to settle
-- Dismisses cookie/consent banners if present
-- Supports both single-step and two-step (username → next → password) login flows
-- Falls back gracefully with warnings if fields are not found
+## Создано: `zoho-clicker/scraper/`
 
-### `POST /api/exact/inventory/fetch`
-Stub endpoint:
-- Logs in via `exactLogin`
-- Returns `current_url` and a 500-char `text_preview` of the dashboard
-- `// TODO` comment marks where inventory table navigation and parsing will go
+### Endpoints
+| Method | Path | Описание |
+|--------|------|----------|
+| POST | `/api/zoho/sync` | Синк. `{mode:"full"\|"incremental", fetchDescriptions:bool}` |
+| GET | `/api/zoho/tickets` | Поиск. `?status_type=Open&search=...&assignee=...&limit=50` |
+| GET | `/api/zoho/tickets/:id` | Один тикет по id или ticketNumber |
+| GET | `/api/zoho/stats` | Статистика по статусам и агентам |
 
-### `POST /api/exact/quotation/create`
-Stub endpoint:
-- Logs in via `exactLogin`
-- Returns `current_url`
-- `// TODO` comment marks where Sales → Quotations → New navigation will go
+### Стратегия синка
+- **Full**: все тикеты постранично (50/страница, ~19 запросов для 939 тикетов)
+- **Incremental**: только open тикеты — closed в БД не трогаются
+- БД: SQLite `zoho_tickets.db`, таблицы `tickets` + `ticket_threads`
 
-### `/debug` updated
-Both new routes are listed in the debug endpoint's `endpoints` array.
+### Результат первого синка
+- 939 тикетов загружено за один full sync
+- 55 открытых, 742 закрытых (Closed + Auto closed)
+- Агенты: Yeon Woo Jeong (514), Stephan Hwei (217), Artug Özbakir (111), Dmytro Surovtsev (67)
 
-## Next steps
-1. Test login flow against live `start.exactonline.de` with real credentials
-2. Map exact URL paths for inventory page and quotation form
-3. Implement parsing/form-fill logic in the stub TODOs
+## Exact Online (eckwmsr/scraper) — статус
+- Login flow исправлен: `[id="LoginForm$UserName"]` → Weiter → Azure B2C → `#password` → `#next`
+- Блокер: 2FA (TOTP) при каждой новой Playwright сессии
+- Решение: storage state — один раз войти вручную, сохранить cookies на 7 дней

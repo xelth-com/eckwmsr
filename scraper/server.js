@@ -126,52 +126,29 @@ async function dhlLogin(page, targetUrl, username, password) {
     }
 }
 
-// Exact Online login sequence (start.exactonline.de, no 2FA)
+// Exact Online login sequence
+// Flow: start.exactonline.de (email) → Weiter → login.exact.com/Azure B2C (password) → Anmelden → dashboard
 async function exactLogin(page, targetUrl, username, password) {
     console.log(`[Exact] Navigating to ${targetUrl}`);
     await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+    // Step 1: fill email on start.exactonline.de and click "Weiter"
+    await page.waitForSelector('[id="LoginForm$UserName"]', { timeout: 15000 });
+    await page.fill('[id="LoginForm$UserName"]', username);
+    await page.waitForTimeout(300);
+    await page.click('button[type="submit"]');
+    console.log('[Exact] Clicked Weiter, waiting for Azure B2C redirect...');
+
+    // Step 2: Azure B2C page (login.exact.com) — fill password and click "Anmelden"
+    await page.waitForSelector('#password', { timeout: 20000 });
+    await page.fill('#password', password);
+    await page.waitForTimeout(300);
+    await page.click('#next');
+    console.log('[Exact] Clicked Anmelden, waiting for dashboard...');
+
+    // Wait for redirect back to start.exactonline.de
+    await page.waitForURL('**/start.exactonline.de/**', { timeout: 30000 }).catch(() => {});
     await page.waitForTimeout(3000);
-
-    // Accept cookie banner if present
-    try {
-        const cookieBtn = page.locator('button:has-text("Akzeptieren"), button:has-text("Accept"), #truste-consent-button');
-        if (await cookieBtn.count() > 0 && await cookieBtn.first().isVisible()) {
-            await cookieBtn.first().click();
-            await page.waitForTimeout(1000);
-        }
-    } catch (e) { /* no banner */ }
-
-    // Fill username
-    const userField = page.locator('input[name*="UserName"], input[type="text"], input[type="email"], #LoginForm_UserName').first();
-    if (await userField.count() === 0) {
-        console.warn('[Exact] Username field not found');
-        return;
-    }
-    await userField.fill(username);
-    await page.waitForTimeout(500);
-
-    // Exact sometimes uses a two-step flow — password may not be visible yet
-    let passField = page.locator('input[name*="Password"], input[type="password"], #LoginForm_Password').first();
-    if (await passField.count() === 0 || !(await passField.isVisible())) {
-        const nextBtn = page.locator('button[type="submit"], input[type="submit"], .btn-primary').first();
-        if (await nextBtn.count() > 0) {
-            await nextBtn.click();
-            await page.waitForTimeout(2000);
-        }
-        passField = page.locator('input[name*="Password"], input[type="password"], #LoginForm_Password').first();
-    }
-
-    if (await passField.count() > 0 && await passField.isVisible()) {
-        await passField.fill(password);
-        await page.waitForTimeout(500);
-        const loginBtn = page.locator('button[type="submit"], input[type="submit"], #LoginForm_btnSave, .btn-primary').first();
-        if (await loginBtn.count() > 0) await loginBtn.click();
-    } else {
-        console.warn('[Exact] Password field not found');
-    }
-
-    console.log('[Exact] Submitted login form, waiting for dashboard...');
-    await page.waitForTimeout(8000);
     console.log(`[Exact] URL after login: ${page.url()}`);
 }
 
