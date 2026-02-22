@@ -30,3 +30,6 @@
 - Login flow исправлен: `[id="LoginForm$UserName"]` → Weiter → Azure B2C → `#password` → `#next`
 - Блокер: 2FA (TOTP) при каждой новой Playwright сессии
 - Решение: storage state — один раз войти вручную, сохранить cookies на 7 дней
+
+
+[SYSTEM: EMBEDDED]
