@@ -150,6 +150,19 @@ async fn main() {
     // Drop delivery_service for now — it will be stored in AppState in Phase 8.3
     let _ = delivery_service;
 
+    // Bind the port BEFORE touching the DB — if port is taken, exit cleanly without
+    // regenerating the setup password (which would desync the running server's in-memory
+    // password from the newly written DB hash).
+    let addr = SocketAddr::from(([0, 0, 0, 0], cfg.port));
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            error!("Cannot bind {}: {} — is another instance already running?", addr, e);
+            std::process::exit(1);
+        }
+    };
+    info!("Server listening on {}", addr);
+
     // Seed setup account if no users exist
     let setup_password = Arc::new(tokio::sync::RwLock::new(
         db::seed_setup_account(&db_conn).await,
@@ -317,17 +330,13 @@ async fn main() {
         .nest("/E/api", api_routes)
         // RMA routes (root level, matching Go router)
         .nest("/E/rma", protected_rma_routes)
-        // Scraper proxy: /S/* → http://127.0.0.1:3211/* (auth inside handler)
-        .route("/S", any(handlers::scraper_proxy::proxy_handler))
-        .route("/S/*path", any(handlers::scraper_proxy::proxy_handler))
+        // Scraper proxy: /E/S/* → http://127.0.0.1:3211/* (auth inside handler)
+        .route("/E/S", any(handlers::scraper_proxy::proxy_handler))
+        .route("/E/S/*path", any(handlers::scraper_proxy::proxy_handler))
         // Fallback for static files (SPA frontend)
         .fallback(web::static_handler)
         .with_state(app_state);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], cfg.port));
-    info!("Server listening on {}", addr);
-
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 

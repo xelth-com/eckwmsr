@@ -30,6 +30,15 @@
     let opalJsonOpen = false;
     let dhlJsonOpen = false;
 
+    let exactRunning = false;
+    let exactResult = null;
+    let exactJsonOpen = false;
+
+    let zohoRunning = false;
+    let zohoLimit = 50;
+    let zohoResult = null;
+    let zohoJsonOpen = false;
+
     async function loadScraperStatus() {
         try {
             scraperStatus = await api.get('/S/debug');
@@ -81,6 +90,36 @@
             dhlRunning = false;
         }
     }
+    async function testExactFetch() {
+        exactRunning = true;
+        exactResult = null;
+        exactJsonOpen = false;
+        const t0 = Date.now();
+        try {
+            const res = await api.post('/S/api/exact/inventory/fetch', { _from_env: true });
+            exactResult = { ...res, duration: ((Date.now() - t0) / 1000).toFixed(1) };
+        } catch (e) {
+            exactResult = { success: false, error: e.message, duration: ((Date.now() - t0) / 1000).toFixed(1) };
+        } finally {
+            exactRunning = false;
+        }
+    }
+
+    async function testZohoFetch() {
+        zohoRunning = true;
+        zohoResult = null;
+        zohoJsonOpen = false;
+        const t0 = Date.now();
+        try {
+            const res = await api.post('/S/api/zoho/tickets', { limit: zohoLimit, _from_env: true });
+            zohoResult = { ...res, duration: ((Date.now() - t0) / 1000).toFixed(1) };
+        } catch (e) {
+            zohoResult = { success: false, error: e.message, duration: ((Date.now() - t0) / 1000).toFixed(1) };
+        } finally {
+            zohoRunning = false;
+        }
+    }
+
     let expandedShipments = new Set(); // Track which shipments are expanded
     let expandedSyncLogs = new Set(); // Track which sync logs are expanded
     let providersConfig = { opal: false, dhl: false }; // Provider availability
@@ -1308,6 +1347,95 @@ Copy this to ChatGPT/Claude for analysis
                     {/if}
                 </div>
 
+                <!-- Exact Online card (stub — 2FA not solved yet) -->
+                <div class="provider-card exact-card">
+                    <div class="card-header">
+                        <span class="card-title">🔵 Exact Online</span>
+                        <span class="card-hint">start.exactonline.de</span>
+                    </div>
+
+                    <div class="stub-warning">⚠️ Stub — 2FA not implemented yet</div>
+
+                    <button
+                        class="run-btn exact-run"
+                        on:click={testExactFetch}
+                        disabled={exactRunning || scraperOnline !== true}
+                    >
+                        {#if exactRunning}
+                            <span class="spinner">⏳</span> Running...
+                        {:else}
+                            🚀 Run Fetch
+                        {/if}
+                    </button>
+
+                    {#if exactResult}
+                        <div class="result-box" class:result-ok={exactResult.success} class:result-err={!exactResult.success}>
+                            {#if exactResult.success}
+                                <div class="result-summary">✅ Done in {exactResult.duration}s</div>
+                            {:else}
+                                <div class="result-summary error">❌ {exactResult.error}</div>
+                            {/if}
+                            {#if exactResult.data}
+                                <button class="toggle-json" on:click={() => exactJsonOpen = !exactJsonOpen}>
+                                    {exactJsonOpen ? '▼' : '▶'} View JSON
+                                </button>
+                                {#if exactJsonOpen}
+                                    <pre class="result-json">{JSON.stringify(exactResult.data, null, 2)}</pre>
+                                {/if}
+                            {/if}
+                        </div>
+                    {/if}
+                </div>
+
+                <!-- Zoho Desk card -->
+                <div class="provider-card zoho-card">
+                    <div class="card-header">
+                        <span class="card-title">🟣 Zoho Desk</span>
+                        <span class="card-hint">desk.inbodysupport.eu</span>
+                    </div>
+
+                    <div class="card-controls">
+                        <label class="control-row">
+                            <span>Limit</span>
+                            <select bind:value={zohoLimit} disabled={zohoRunning}>
+                                <option value={10}>10</option>
+                                <option value={50}>50</option>
+                                <option value={100}>100</option>
+                            </select>
+                        </label>
+                    </div>
+
+                    <button
+                        class="run-btn zoho-run"
+                        on:click={testZohoFetch}
+                        disabled={zohoRunning || scraperOnline !== true}
+                    >
+                        {#if zohoRunning}
+                            <span class="spinner">⏳</span> Running...
+                        {:else}
+                            🚀 Fetch Tickets
+                        {/if}
+                    </button>
+
+                    {#if zohoResult}
+                        <div class="result-box" class:result-ok={zohoResult.success} class:result-err={!zohoResult.success}>
+                            {#if zohoResult.success}
+                                <div class="result-summary">✅ {zohoResult.count ?? zohoResult.tickets?.length ?? 0} tickets in {zohoResult.duration}s</div>
+                            {:else}
+                                <div class="result-summary error">❌ {zohoResult.error}</div>
+                            {/if}
+                            {#if zohoResult.tickets?.length}
+                                <button class="toggle-json" on:click={() => zohoJsonOpen = !zohoJsonOpen}>
+                                    {zohoJsonOpen ? '▼' : '▶'} View JSON ({zohoResult.tickets.length} tickets)
+                                </button>
+                                {#if zohoJsonOpen}
+                                    <pre class="result-json">{JSON.stringify(zohoResult.tickets, null, 2)}</pre>
+                                {/if}
+                            {/if}
+                        </div>
+                    {/if}
+                </div>
+
             </div><!-- /provider-cards -->
 
             <!-- Hint about credentials -->
@@ -2092,8 +2220,10 @@ Copy this to ChatGPT/Claude for analysis
         gap: 1rem;
     }
 
-    .opal-card { border-color: #166534; }
-    .dhl-card  { border-color: #713f12; }
+    .opal-card  { border-color: #166534; }
+    .dhl-card   { border-color: #713f12; }
+    .exact-card { border-color: #1e3a5f; }
+    .zoho-card  { border-color: #4a1d6e; }
 
     .card-header {
         display: flex;
@@ -2183,6 +2313,26 @@ Copy this to ChatGPT/Claude for analysis
     }
 
     .dhl-run:hover:not(:disabled) { background: #92400e; }
+
+    .exact-run {
+        background: #1e3a5f;
+        color: #93c5fd;
+        border: 1px solid #3b82f6;
+    }
+    .exact-run:hover:not(:disabled) { background: #1e40af; }
+
+    .zoho-run {
+        background: #4a1d6e;
+        color: #d8b4fe;
+        border: 1px solid #a855f7;
+    }
+    .zoho-run:hover:not(:disabled) { background: #6b21a8; }
+
+    .stub-warning {
+        font-size: 0.78rem;
+        color: #f59e0b;
+        margin-bottom: 0.5rem;
+    }
 
     .run-btn:disabled {
         opacity: 0.45;

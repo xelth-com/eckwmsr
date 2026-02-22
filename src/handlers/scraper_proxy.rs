@@ -9,8 +9,8 @@ use crate::{db::AppState, utils::auth::validate_token};
 
 const SCRAPER_BASE: &str = "http://127.0.0.1:3211";
 
-/// Reverse proxy: forwards all /S/* requests to the Node.js scraper on port 3211.
-/// The /S prefix is stripped, so /S/api/opal/fetch → http://127.0.0.1:3211/api/opal/fetch
+/// Reverse proxy: forwards all /E/S/* requests to the Node.js scraper on port 3211.
+/// The /E/S prefix is stripped, so /E/S/api/opal/fetch → http://127.0.0.1:3211/api/opal/fetch
 /// JWT auth is checked inline (same logic as auth_middleware).
 pub async fn proxy_handler(
     State(state): State<Arc<AppState>>,
@@ -32,9 +32,9 @@ pub async fn proxy_handler(
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    // Strip leading /S from path
+    // Strip leading /E/S from path
     let path = uri.path();
-    let stripped = path.strip_prefix("/S").unwrap_or(path);
+    let stripped = path.strip_prefix("/E/S").unwrap_or(path);
     let stripped = if stripped.is_empty() { "/" } else { stripped };
     let query = uri.query().map(|q| format!("?{}", q)).unwrap_or_default();
     let target_url = format!("{}{}{}", SCRAPER_BASE, stripped, query);
