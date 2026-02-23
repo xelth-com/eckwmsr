@@ -192,6 +192,15 @@ async function zohoLogin(page, targetUrl, username, password) {
     console.log(`[Zoho] Final URL after login: ${page.url()}`);
 }
 
+async function zohoApi(page, path) {
+    return page.evaluate(async ([path]) => {
+        const sep = path.includes('?') ? '&' : '?';
+        const resp = await fetch(path + sep + 'orgId=20078282365', { credentials: 'include' });
+        if (!resp.ok) return { error: resp.status, body: await resp.text() };
+        return resp.json();
+    }, [path]);
+}
+
 // ─── DHL: Create Shipment ──────────────────────────────────────────────────
 app.post('/api/dhl/create', (req, res) => {
     runScraper(req, res, async (page, data) => {
@@ -729,6 +738,40 @@ app.post('/api/zoho/tickets', (req, res) => {
     });
 });
 
+// ─── ZOHO DESK: Fetch Ticket Email Threads ────────────────────────────────────
+app.post('/api/zoho/ticket-threads', (req, res) => {
+    runScraper(req, res, async (page, data) => {
+        const username  = data.username || (data._from_env ? process.env.ZOHO_EMAIL    : '') || '';
+        const password  = data.password || (data._from_env ? process.env.ZOHO_PASSWORD : '') || '';
+        const targetUrl = data.url || process.env.ZOHO_URL || 'https://desk.inbodysupport.eu/agent/';
+        const ticketId  = data.ticketId;
+
+        if (!ticketId) throw new Error('ticketId is required');
+        if (!username || !password) throw new Error('ZOHO_EMAIL or ZOHO_PASSWORD missing. Provide in body or .env');
+
+        await zohoLogin(page, targetUrl, username, password);
+
+        if (!page.url().includes('desk.inbodysupport.eu')) {
+            await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
+        }
+
+        const threadsRes = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}/threads`);
+        if (threadsRes.error) throw new Error(`Zoho threads API error ${threadsRes.error}: ${threadsRes.body}`);
+
+        const threads = threadsRes.data || [];
+
+        // Fetch attachments for each thread
+        for (const thread of threads) {
+            const attRes = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}/threads/${thread.id}/attachments`);
+            thread.attachments = attRes.error ? [] : (attRes.data || []);
+        }
+
+        console.log(`[Zoho] Fetched ${threads.length} threads for ticket ${ticketId}`);
+        return { success: true, ticketId, count: threads.length, threads };
+    });
+});
+
 // ─── Debug / Info ─────────────────────────────────────────────────────────────
 
 // GET /debug — shows scraper info and available endpoints.
@@ -747,8 +790,9 @@ app.get('/debug', (req, res) => {
             { method: 'POST', path: '/api/dhl/fetch',     desc: 'Fetch DHL shipment list via CSV (supports debug:true)' },
             { method: 'POST', path: '/api/exact/inventory/fetch',  desc: 'Exact Online: fetch inventory (stub)' },
             { method: 'POST', path: '/api/exact/quotation/create', desc: 'Exact Online: create Kostenvoranschlag (stub)' },
-            { method: 'POST', path: '/api/zoho/tickets',  desc: 'Zoho Desk: login and fetch tickets (stub)' },
-            { method: 'GET',  path: '/debug',             desc: 'This page' },
+            { method: 'POST', path: '/api/zoho/tickets',         desc: 'Zoho Desk: login and fetch tickets' },
+            { method: 'POST', path: '/api/zoho/ticket-threads', desc: 'Zoho Desk: fetch ticket email threads with HTML content and attachments' },
+            { method: 'GET',  path: '/debug',                   desc: 'This page' },
         ]
     });
 });

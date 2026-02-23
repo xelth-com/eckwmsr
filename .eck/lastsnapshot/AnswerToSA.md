@@ -156,3 +156,6 @@ async function testZohoFetchThreads() {
 - Attachment `href` is a direct download URL valid while Playwright session is alive
 - `runScraper` wraps browser lifecycle — just use `page` and `data` in callback
 - Frontend proxy: requests go via `/S/api/...` → Rust proxies to `http://127.0.0.1:3211`
+
+
+[SYSTEM: EMBEDDED]

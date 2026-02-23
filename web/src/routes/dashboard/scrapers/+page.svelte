@@ -38,6 +38,11 @@
     let zohoResult = null;
     let zohoJsonOpen = false;
 
+    let zohoThreadTicketId = '';
+    let zohoThreadRunning = false;
+    let zohoThreadResult = null;
+    let zohoThreadJsonOpen = false;
+
     let expandedSyncLogs = new Set();
 
     onMount(async () => {
@@ -141,6 +146,22 @@
             zohoResult = { success: false, error: e.message, duration: ((Date.now() - t0) / 1000).toFixed(1) };
         } finally {
             zohoRunning = false;
+        }
+    }
+
+    async function testZohoFetchThreads() {
+        if (!zohoThreadTicketId) return;
+        zohoThreadRunning = true;
+        zohoThreadResult = null;
+        zohoThreadJsonOpen = false;
+        const t0 = Date.now();
+        try {
+            const res = await api.post('/S/api/zoho/ticket-threads', { ticketId: zohoThreadTicketId, _from_env: true });
+            zohoThreadResult = { ...res, duration: ((Date.now() - t0) / 1000).toFixed(1) };
+        } catch (e) {
+            zohoThreadResult = { success: false, error: e.message, duration: ((Date.now() - t0) / 1000).toFixed(1) };
+        } finally {
+            zohoThreadRunning = false;
         }
     }
 
@@ -439,6 +460,38 @@ Copy this to ChatGPT/Claude for analysis
                             {/if}
                         </div>
                     {/if}
+
+                    <div class="threads-section">
+                        <div class="threads-row">
+                            <input
+                                type="text"
+                                bind:value={zohoThreadTicketId}
+                                placeholder="Ticket ID for email threads"
+                                disabled={zohoThreadRunning}
+                                class="ticket-id-input"
+                            />
+                            <button class="run-btn zoho-run" on:click={testZohoFetchThreads}
+                                disabled={zohoThreadRunning || !zohoThreadTicketId || scraperOnline !== true}>
+                                {#if zohoThreadRunning}<span class="spinner">⏳</span> Fetching...
+                                {:else}📧 Fetch Threads{/if}
+                            </button>
+                        </div>
+                        {#if zohoThreadResult}
+                            <div class="result-box" class:result-ok={zohoThreadResult.success} class:result-err={!zohoThreadResult.success}>
+                                {#if zohoThreadResult.success}
+                                    <div class="result-summary">✅ {zohoThreadResult.count} threads in {zohoThreadResult.duration}s</div>
+                                {:else}
+                                    <div class="result-summary error">❌ {zohoThreadResult.error}</div>
+                                {/if}
+                                {#if zohoThreadResult.threads?.length}
+                                    <button class="toggle-json" on:click={() => zohoThreadJsonOpen = !zohoThreadJsonOpen}>
+                                        {zohoThreadJsonOpen ? '▼' : '▶'} View threads ({zohoThreadResult.threads.length})
+                                    </button>
+                                    {#if zohoThreadJsonOpen}<pre class="result-json">{JSON.stringify(zohoThreadResult.threads, null, 2)}</pre>{/if}
+                                {/if}
+                            </div>
+                        {/if}
+                    </div>
                 </div>
             </div>
 
@@ -704,6 +757,13 @@ Copy this to ChatGPT/Claude for analysis
     .toggle-json { align-self: flex-start; background: none; border: none; color: #4a69bd; font-size: 0.82rem; cursor: pointer; padding: 0; font-family: monospace; }
     .toggle-json:hover { text-decoration: underline; }
     .result-json { background: #141414; color: #4a69bd; border: 1px solid #2a2a2a; border-radius: 4px; padding: 0.75rem; font-size: 0.72rem; line-height: 1.5; overflow: auto; max-height: 400px; white-space: pre; }
+
+    .threads-section { display: flex; flex-direction: column; gap: 0.75rem; border-top: 1px solid #2a2a2a; padding-top: 1rem; }
+    .threads-row { display: flex; gap: 0.5rem; }
+    .ticket-id-input { flex: 1; background: #141414; border: 1px solid #4a1d6e; color: #e2d9f3; padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.85rem; font-family: monospace; }
+    .ticket-id-input::placeholder { color: #555; }
+    .ticket-id-input:focus { outline: none; border-color: #a855f7; }
+    .ticket-id-input:disabled { opacity: 0.5; cursor: not-allowed; }
 
     .creds-note { font-size: 0.8rem; color: #555; text-align: center; }
     .creds-note code { background: #2a2a2a; border-radius: 3px; padding: 0.1rem 0.35rem; color: #888; }
