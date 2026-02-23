@@ -1,4 +1,4 @@
-import { h as attr, e as escape_html, d as attr_class, b as ensure_array_like, i as attr_style, f as stringify } from "../../../../chunks/index2.js";
+import { h as attr, e as escape_html, d as attr_class, b as ensure_array_like, i as attr_style, f as stringify, j as bind_props } from "../../../../chunks/index2.js";
 import "../../../../chunks/authStore.js";
 import "../../../../chunks/url.js";
 import "@sveltejs/kit/internal/server";
@@ -6,9 +6,12 @@ import "../../../../chunks/root.js";
 import "../../../../chunks/toastStore.js";
 function _page($$renderer, $$props) {
   $$renderer.component(($$renderer2) => {
-    let pickings = [];
-    let shipments = [];
-    let loading = true;
+    let data = $$props["data"];
+    let pickings = data.pickings || [];
+    let shipments = data.shipments || [];
+    let providersConfig = data.providersConfig || { opal: false, dhl: false };
+    let loading = false;
+    let error = data.error || null;
     let activeTab = "pickings";
     let processingPickings = /* @__PURE__ */ new Set();
     function formatDate(dateStr) {
@@ -22,31 +25,36 @@ function _page($$renderer, $$props) {
       });
     }
     function getStateColor(state) {
-      const colors = {
+      const c = {
         draft: "#6c757d",
         assigned: "#ffc107",
         confirmed: "#17a2b8",
         done: "#28a745",
         cancel: "#dc3545"
       };
-      return colors[state] || "#6c757d";
+      return c[state] || "#6c757d";
     }
     $$renderer2.push(`<div class="shipping-page svelte-1dkwspw"><header class="svelte-1dkwspw"><h1 class="svelte-1dkwspw">📦 Shipping &amp; Delivery</h1> <div class="header-actions svelte-1dkwspw">`);
-    {
+    if (providersConfig?.opal === true) {
+      $$renderer2.push("<!--[-->");
+      $$renderer2.push(`<button class="action-btn opal-btn svelte-1dkwspw"${attr("disabled", loading, true)}>${escape_html("🟢 Sync OPAL")}</button>`);
+    } else {
       $$renderer2.push("<!--[!-->");
     }
     $$renderer2.push(`<!--]--> `);
-    {
+    if (providersConfig?.dhl === true) {
+      $$renderer2.push("<!--[-->");
+      $$renderer2.push(`<button class="action-btn dhl-btn svelte-1dkwspw"${attr("disabled", loading, true)}>${escape_html("🟡 Sync DHL")}</button>`);
+    } else {
       $$renderer2.push("<!--[!-->");
     }
-    $$renderer2.push(`<!--]--> <button class="refresh-btn svelte-1dkwspw"${attr("disabled", loading, true)}>${escape_html("↻ Loading...")}</button></div></header> <div class="tabs svelte-1dkwspw"><button${attr_class("tab svelte-1dkwspw", void 0, { "active": activeTab === "pickings" })}>📋 Ready to Ship (${escape_html(pickings.length)})</button> <button${attr_class("tab svelte-1dkwspw", void 0, { "active": activeTab === "shipments" })}>🚚 Shipments (${escape_html(shipments.length)})</button> <button${attr_class("tab svelte-1dkwspw", void 0, { "active": activeTab === "sync" })}>🔄 Sync History</button> <button${attr_class("tab svelte-1dkwspw", void 0, { "active": activeTab === "scraper" })}>🤖 Scraper Admin</button></div> `);
-    if (pickings.length === 0 && shipments.length === 0) {
-      $$renderer2.push("<!--[-->");
-      $$renderer2.push(`<div class="loading svelte-1dkwspw">Loading shipping data...</div>`);
+    $$renderer2.push(`<!--]--> <button class="refresh-btn svelte-1dkwspw"${attr("disabled", loading, true)}>${escape_html("↻ Refresh")}</button></div></header> <div class="tabs svelte-1dkwspw"><button${attr_class("tab svelte-1dkwspw", void 0, { "active": activeTab === "pickings" })}>📋 Ready to Ship (${escape_html(pickings.length)})</button> <button${attr_class("tab svelte-1dkwspw", void 0, { "active": activeTab === "shipments" })}>🚚 Shipments (${escape_html(shipments.length)})</button></div> `);
+    if (error) {
+      $$renderer2.push("<!--[1-->");
+      $$renderer2.push(`<div class="error svelte-1dkwspw">Failed to load data: ${escape_html(error)}</div>`);
     } else {
       $$renderer2.push("<!--[2-->");
-      $$renderer2.push(`<div class="pickings-section"><p class="section-desc svelte-1dkwspw">These are Odoo Transfer Orders ready to be shipped. Click "Ship
-                with OPAL" to create a delivery shipment.</p> `);
+      $$renderer2.push(`<div class="pickings-section"><p class="section-desc svelte-1dkwspw">These are Odoo Transfer Orders ready to be shipped. Click "Ship with OPAL" to create a delivery shipment.</p> `);
       if (pickings.length === 0) {
         $$renderer2.push("<!--[-->");
         $$renderer2.push(`<div class="empty-state svelte-1dkwspw"><p class="svelte-1dkwspw">✅ No pickings ready to ship</p> <small class="svelte-1dkwspw">Pickings with status "assigned" will appear here</small></div>`);
@@ -63,6 +71,7 @@ function _page($$renderer, $$props) {
       $$renderer2.push(`<!--]--></div>`);
     }
     $$renderer2.push(`<!--]--></div>`);
+    bind_props($$props, { data });
   });
 }
 export {

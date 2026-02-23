@@ -682,12 +682,17 @@ app.post('/api/exact/quotation/create', (req, res) => {
     });
 });
 
-// ─── ZOHO DESK: Fetch Tickets (Stub) ──────────────────────────────────────
+// ─── ZOHO DESK: Fetch Tickets ─────────────────────────────────────────────
+const ZOHO_BASE = '/supportapi/zd/inbodyeu/api/v1';
+const ZOHO_ORG  = '20078282365';
+const ZOHO_DEPT = '53451000019414029';
+
 app.post('/api/zoho/tickets', (req, res) => {
     runScraper(req, res, async (page, data) => {
-        const username = data.username || (data._from_env ? process.env.ZOHO_EMAIL : '') || '';
-        const password = data.password || (data._from_env ? process.env.ZOHO_PASSWORD : '') || '';
+        const username  = data.username || (data._from_env ? process.env.ZOHO_EMAIL    : '') || '';
+        const password  = data.password || (data._from_env ? process.env.ZOHO_PASSWORD : '') || '';
         const targetUrl = data.url || process.env.ZOHO_URL || 'https://desk.inbodysupport.eu/agent/';
+        const limit     = Math.min(data.limit || 50, 200);
 
         if (!username || !password) {
             throw new Error('ZOHO_EMAIL or ZOHO_PASSWORD missing. Provide in body or .env');
@@ -695,19 +700,31 @@ app.post('/api/zoho/tickets', (req, res) => {
 
         await zohoLogin(page, targetUrl, username, password);
 
-        // After login Zoho may redirect to portal — navigate explicitly to agent view
-        if (!page.url().includes('/agent/')) {
+        // Ensure we're on the agent page so session cookies are in scope
+        if (!page.url().includes('desk.inbodysupport.eu')) {
             await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
             await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
         }
 
-        const pageText = await page.evaluate(() => document.body?.innerText?.substring(0, 1000) || 'EMPTY');
+        // Use browser's session cookies to call the internal Zoho API
+        const url = `${ZOHO_BASE}/tickets?include=contacts,assignee,departments&from=0&limit=${limit}&sortBy=-modifiedTime&departmentId=${ZOHO_DEPT}&orgId=${ZOHO_ORG}`;
+        const resp = await page.evaluate(async (url) => {
+            const r = await fetch(url, { credentials: 'include' });
+            if (!r.ok) return { error: r.status, body: await r.text() };
+            return r.json();
+        }, url);
+
+        if (resp.error) {
+            throw new Error(`Zoho API error ${resp.error}: ${resp.body}`);
+        }
+
+        const tickets = resp.data || [];
+        console.log(`[Zoho] Fetched ${tickets.length} tickets`);
 
         return {
             success: true,
-            message: 'Logged in successfully. Navigation paths for tickets pending.',
-            current_url: page.url(),
-            text_preview: pageText
+            count: tickets.length,
+            tickets,
         };
     });
 });

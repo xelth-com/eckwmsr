@@ -27,7 +27,7 @@ export {};
 
 declare module "$app/types" {
 	export interface AppTypes {
-		RouteId(): "/" | "/dashboard" | "/dashboard/devices" | "/dashboard/items" | "/dashboard/items/[id]" | "/dashboard/print" | "/dashboard/rma" | "/dashboard/rma/[id]" | "/dashboard/shipping" | "/dashboard/users" | "/dashboard/warehouse" | "/dashboard/warehouse/blueprint" | "/dashboard/warehouse/[id]" | "/login";
+		RouteId(): "/" | "/dashboard" | "/dashboard/devices" | "/dashboard/items" | "/dashboard/items/[id]" | "/dashboard/print" | "/dashboard/rma" | "/dashboard/rma/[id]" | "/dashboard/scrapers" | "/dashboard/shipping" | "/dashboard/users" | "/dashboard/warehouse" | "/dashboard/warehouse/blueprint" | "/dashboard/warehouse/[id]" | "/login";
 		RouteParams(): {
 			"/dashboard/items/[id]": { id: string };
 			"/dashboard/rma/[id]": { id: string };
@@ -42,6 +42,7 @@ declare module "$app/types" {
 			"/dashboard/print": Record<string, never>;
 			"/dashboard/rma": { id?: string };
 			"/dashboard/rma/[id]": { id: string };
+			"/dashboard/scrapers": Record<string, never>;
 			"/dashboard/shipping": Record<string, never>;
 			"/dashboard/users": Record<string, never>;
 			"/dashboard/warehouse": { id?: string };
@@ -49,7 +50,7 @@ declare module "$app/types" {
 			"/dashboard/warehouse/[id]": { id: string };
 			"/login": Record<string, never>
 		};
-		Pathname(): "/" | "/dashboard" | "/dashboard/devices" | "/dashboard/items" | `/dashboard/items/${string}` & {} | "/dashboard/print" | "/dashboard/rma" | `/dashboard/rma/${string}` & {} | "/dashboard/shipping" | "/dashboard/users" | "/dashboard/warehouse" | "/dashboard/warehouse/blueprint" | `/dashboard/warehouse/${string}` & {} | "/login";
+		Pathname(): "/" | "/dashboard" | "/dashboard/devices" | "/dashboard/items" | `/dashboard/items/${string}` & {} | "/dashboard/print" | "/dashboard/rma" | `/dashboard/rma/${string}` & {} | "/dashboard/scrapers" | "/dashboard/shipping" | "/dashboard/users" | "/dashboard/warehouse" | "/dashboard/warehouse/blueprint" | `/dashboard/warehouse/${string}` & {} | "/login";
 		ResolvedPathname(): `${"" | `/${string}`}${ReturnType<AppTypes['Pathname']>}`;
 		Asset(): string & {};
 	}

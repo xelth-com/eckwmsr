@@ -177,6 +177,12 @@
             >
                 Users
             </a>
+            <a
+                href="{base}/dashboard/scrapers"
+                class:active={$page.url.pathname.includes("/scrapers")}
+            >
+                Scrapers
+            </a>
         </nav>
 
         <div class="user-panel">

@@ -11,6 +11,17 @@
       "_internal.js"
     ]
   },
+  "_api.js": {
+    "file": "chunks/api.js",
+    "name": "api",
+    "imports": [
+      "_index.js",
+      "_authStore.js",
+      "_server.js",
+      "_url.js",
+      "_root.js"
+    ]
+  },
   "_authStore.js": {
     "file": "chunks/authStore.js",
     "name": "authStore",
@@ -344,17 +355,38 @@
       "i/immutable/assets/_page.DUZsnadc.css"
     ]
   },
+  "src/routes/dashboard/scrapers/+page.js": {
+    "file": "entries/pages/dashboard/scrapers/_page.js",
+    "name": "entries/pages/dashboard/scrapers/_page",
+    "src": "src/routes/dashboard/scrapers/+page.js",
+    "isEntry": true,
+    "imports": [
+      "_api.js"
+    ]
+  },
+  "src/routes/dashboard/scrapers/+page.svelte": {
+    "file": "entries/pages/dashboard/scrapers/_page.svelte.js",
+    "name": "entries/pages/dashboard/scrapers/_page.svelte",
+    "src": "src/routes/dashboard/scrapers/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_index2.js",
+      "_authStore.js",
+      "_url.js",
+      "_root.js",
+      "_toastStore.js"
+    ],
+    "css": [
+      "i/immutable/assets/_page.BY16501v.css"
+    ]
+  },
   "src/routes/dashboard/shipping/+page.js": {
     "file": "entries/pages/dashboard/shipping/_page.js",
     "name": "entries/pages/dashboard/shipping/_page",
     "src": "src/routes/dashboard/shipping/+page.js",
     "isEntry": true,
     "imports": [
-      "_index.js",
-      "_authStore.js",
-      "_server.js",
-      "_url.js",
-      "_root.js"
+      "_api.js"
     ]
   },
   "src/routes/dashboard/shipping/+page.svelte": {
@@ -370,7 +402,7 @@
       "_toastStore.js"
     ],
     "css": [
-      "i/immutable/assets/_page.C-Z1Tq47.css"
+      "i/immutable/assets/_page.bpuuUHI-.css"
     ]
   },
   "src/routes/dashboard/users/+page.svelte": {
