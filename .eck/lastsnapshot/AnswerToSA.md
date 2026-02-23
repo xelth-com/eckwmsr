@@ -1,39 +1,20 @@
-# Task: Implement Zoho Ticket Thread Scraping
+# Task: Add Zoho Ticket Thread Fetching (Email Body + Attachments)
 
-## Context
-User wants to scrape full email thread content from Zoho Desk tickets.
-Customers send repair protocols, QC reports, images of defects inside emails.
-This data is currently not collected.
+## Why
+Customers send repair protocols, QC reports, damage photos inside Zoho ticket emails.
+We need to fetch the full HTML content + attachments per ticket.
 
-## What's already done (this session)
-- `eckwmsr/scraper/server.js` — `POST /api/zoho/tickets` now works (was a stub before)
-  - Logs in via Playwright, fetches ticket list via internal Zoho API with session cookies
-  - Pattern: `page.evaluate(async (url) => fetch(url, { credentials: 'include' }).then(r => r.json()), url)`
-  - Returns `{ success, count, tickets[] }` with full ticket metadata
-- Scraper proxy fixed: routes moved from `/S/*` to `/E/S/*` in `src/main.rs`
-- Scrapers page created: `web/src/routes/dashboard/scrapers/+page.svelte`
+## Key files
+- `eckwmsr/scraper/server.js` — add `zohoApi()` helper + `/api/zoho/ticket-threads` endpoint
+- `web/src/routes/dashboard/scrapers/+page.svelte` — add thread fetch UI to Zoho card (lines ~399-438)
 
-## What needs to be implemented
+---
 
-### New endpoint: `POST /api/zoho/ticket-threads`
-File: `C:\Users\Dmytro\eckwmsr\scraper\server.js`
+## Step 1: Add `zohoApi()` helper to `eckwmsr/scraper/server.js`
 
-Input: `{ ticketId: "53451000033028039", _from_env: true }`
+Insert after `zohoLogin()` function (after line ~168). Copy from `zoho-clicker/scraper/server.js` line 171:
 
-Steps:
-1. Login via `zohoLogin()` (already defined in server.js)
-2. Fetch thread list:
-   ```
-   GET /supportapi/zd/inbodyeu/api/v1/tickets/{ticketId}/threads?orgId=20078282365
-   ```
-3. For each thread fetch attachments:
-   ```
-   GET /supportapi/zd/inbodyeu/api/v1/tickets/{ticketId}/threads/{threadId}/attachments?orgId=20078282365
-   ```
-4. Return combined structure (see below)
-
-### zohoApi helper — copy from zoho-clicker
-```javascript
+```js
 async function zohoApi(page, path) {
     return page.evaluate(async ([path]) => {
         const sep = path.includes('?') ? '&' : '?';
@@ -42,45 +23,136 @@ async function zohoApi(page, path) {
         return resp.json();
     }, [path]);
 }
-const BASE = '/supportapi/zd/inbodyeu/api/v1';
-// orgId=20078282365, deptId=53451000019414029
 ```
 
-### Suggested response format
+---
+
+## Step 2: Add `POST /api/zoho/ticket-threads` endpoint
+
+Add after the existing `/api/zoho/tickets` endpoint (~line 735). Pattern is identical to tickets endpoint.
+
+```js
+// ─── ZOHO DESK: Fetch Ticket Email Threads ─────────────────────────────────
+app.post('/api/zoho/ticket-threads', (req, res) => {
+    runScraper(req, res, async (page, data) => {
+        const username  = data.username || (data._from_env ? process.env.ZOHO_EMAIL    : '') || '';
+        const password  = data.password || (data._from_env ? process.env.ZOHO_PASSWORD : '') || '';
+        const targetUrl = data.url || process.env.ZOHO_URL || 'https://desk.inbodysupport.eu/agent/';
+        const ticketId  = data.ticketId;
+
+        if (!ticketId) throw new Error('ticketId is required');
+        if (!username || !password) throw new Error('ZOHO_EMAIL or ZOHO_PASSWORD missing');
+
+        await zohoLogin(page, targetUrl, username, password);
+        if (!page.url().includes('desk.inbodysupport.eu')) {
+            await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
+        }
+
+        const threadsRes = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}/threads`);
+        if (threadsRes.error) throw new Error(`Zoho threads API error ${threadsRes.error}: ${threadsRes.body}`);
+
+        const threads = threadsRes.data || [];
+
+        // Fetch attachments for each thread
+        for (const thread of threads) {
+            const attRes = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}/threads/${thread.id}/attachments`);
+            thread.attachments = attRes.error ? [] : (attRes.data || []);
+        }
+
+        console.log(`[Zoho] Fetched ${threads.length} threads for ticket ${ticketId}`);
+        return { success: true, ticketId, count: threads.length, threads };
+    });
+});
+```
+
+Also add to the `/debug` endpoint's `endpoints` array:
+```js
+{ method: 'POST', path: '/api/zoho/ticket-threads', desc: 'Zoho Desk: fetch ticket email threads with HTML content and attachments' },
+```
+
+Response shape per thread:
 ```json
 {
-  "success": true,
-  "ticket_id": "...",
-  "thread_count": 7,
-  "threads": [
-    {
-      "id": "...",
-      "direction": "in",
-      "content": "<html>...</html>",
-      "from": "customer@example.com",
-      "to": "support@inbody.com",
-      "createdTime": "2026-02-09T14:19:52.000Z",
-      "attachments": [
-        { "id": "...", "fileName": "repair_protocol.pdf", "size": 102400, "href": "..." }
-      ]
-    }
+  "id": "...",
+  "direction": "in",
+  "content": "<html>...</html>",
+  "from": "customer@example.com",
+  "createdTime": "2026-02-09T14:19:52.000Z",
+  "attachments": [
+    { "id": "...", "fileName": "repair_protocol.pdf", "size": 102400, "href": "..." }
   ]
 }
 ```
 
-### zoho-clicker DB schema for reference
-`C:\Users\Dmytro\zoho-clicker\scraper\server.js` has full implementation:
-```sql
-zoho_ticket_threads: id, ticket_id, direction, content (HTML), summary,
-  content_type, from_email, to_email, created_time, is_description_thread
+---
+
+## Step 3: Update frontend `web/src/routes/dashboard/scrapers/+page.svelte`
+
+**Add state variables** in `<script>` section, after `let zohoJsonOpen = false;` (line ~39):
+```js
+let zohoThreadTicketId = '';
+let zohoThreadRunning = false;
+let zohoThreadResult = null;
+let zohoThreadJsonOpen = false;
 ```
 
-## Key constants
-- orgId: `20078282365`
-- deptId: `53451000019414029`
-- Base URL: `https://desk.inbodysupport.eu/agent/`
-- Internal API base (relative, use in page.evaluate): `/supportapi/zd/inbodyeu/api/v1`
+**Add fetch function** after `testZohoFetch()`:
+```js
+async function testZohoFetchThreads() {
+    if (!zohoThreadTicketId) return;
+    zohoThreadRunning = true;
+    zohoThreadResult = null;
+    const t0 = Date.now();
+    try {
+        const res = await api.post('/S/api/zoho/ticket-threads', { ticketId: zohoThreadTicketId, _from_env: true });
+        zohoThreadResult = { ...res, duration: ((Date.now() - t0) / 1000).toFixed(1) };
+    } catch(e) {
+        zohoThreadResult = { success: false, error: e.message, duration: ((Date.now() - t0) / 1000).toFixed(1) };
+    } finally {
+        zohoThreadRunning = false;
+    }
+}
+```
 
-## Frontend extension
-`C:\Users\Dmytro\eckwmsr\web\src\routes\dashboard\scrapers\+page.svelte`
-Zoho card — add a text input for ticket number + "Fetch Threads" button that calls the new endpoint.
+**Add UI block** inside `.zoho-card` div, after the existing `zohoResult` block (~line 440):
+```svelte
+<div class="sub-section" style="margin-top:0.75rem">
+    <label style="font-size:0.8rem;opacity:0.7">Fetch Email Threads</label>
+    <div style="display:flex;gap:0.5rem;margin-top:0.25rem">
+        <input type="text" bind:value={zohoThreadTicketId}
+            placeholder="Ticket ID" disabled={zohoThreadRunning}
+            style="flex:1;background:#1a0a2e;border:1px solid #6b21a8;color:#e2d9f3;padding:0.4rem 0.6rem;border-radius:6px" />
+        <button class="run-btn zoho-run" on:click={testZohoFetchThreads}
+            disabled={zohoThreadRunning || !zohoThreadTicketId || scraperOnline !== true}>
+            {#if zohoThreadRunning}<span class="spinner">⏳</span> Fetching...
+            {:else}📧 Fetch Threads{/if}
+        </button>
+    </div>
+    {#if zohoThreadResult}
+        <div class="result-box" class:result-ok={zohoThreadResult.success} class:result-err={!zohoThreadResult.success}>
+            {#if zohoThreadResult.success}
+                <div class="result-summary">✅ {zohoThreadResult.count} threads in {zohoThreadResult.duration}s</div>
+            {:else}
+                <div class="result-summary error">❌ {zohoThreadResult.error}</div>
+            {/if}
+            {#if zohoThreadResult.threads?.length}
+                <button class="toggle-json" on:click={() => zohoThreadJsonOpen = !zohoThreadJsonOpen}>
+                    {zohoThreadJsonOpen ? '▼' : '▶'} View threads ({zohoThreadResult.threads.length})
+                </button>
+                {#if zohoThreadJsonOpen}<pre class="result-json">{JSON.stringify(zohoThreadResult.threads, null, 2)}</pre>{/if}
+            {/if}
+        </div>
+    {/if}
+</div>
+```
+
+---
+
+## Notes
+- `ZOHO_BASE` is already defined as `/supportapi/zd/inbodyeu/api/v1` in server.js
+- `zohoApi()` auto-appends `orgId=20078282365` to all requests
+- Thread `content` is HTML — may contain embedded images as base64 or cid refs
+- Attachment `href` is a direct download URL valid while Playwright session is alive
+- `runScraper` wraps browser lifecycle — just use `page` and `data` in callback
+- Frontend proxy: requests go via `/S/api/...` → Rust proxies to `http://127.0.0.1:3211`
