@@ -278,6 +278,8 @@ async fn main() {
         // Admin User Management
         .route("/admin/users", get(handlers::admin_users::list_users).post(handlers::admin_users::create_user))
         .route("/admin/users/:id", put(handlers::admin_users::update_user).delete(handlers::admin_users::delete_user))
+        // Support thread import
+        .route("/support/import-thread", post(handlers::support::import_thread))
         // Admin Config & Mesh Management
         .route("/admin/config/save-key", post(handlers::config::save_network_key))
         .route("/admin/mesh/:id", delete(handlers::mesh::delete_node))

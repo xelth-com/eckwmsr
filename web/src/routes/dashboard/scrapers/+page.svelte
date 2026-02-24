@@ -43,6 +43,9 @@
     let zohoThreadResult = null;
     let zohoThreadJsonOpen = false;
 
+    let zohoImportRunning = false;
+    let zohoImportResult = null;
+
     let expandedSyncLogs = new Set();
 
     onMount(async () => {
@@ -149,11 +152,35 @@
         }
     }
 
+    async function importThreadsToSystem() {
+        if (!zohoThreadResult?.threads?.length) return;
+        zohoImportRunning = true;
+        zohoImportResult = null;
+        try {
+            const res = await api.post('/api/support/import-thread', {
+                ticketId: zohoThreadTicketId,
+                threads: zohoThreadResult.threads,
+            });
+            zohoImportResult = res;
+            if (res.imported > 0) {
+                toastStore.add(`Imported ${res.imported} thread(s) to system`, 'success');
+            } else {
+                toastStore.add('Import finished with errors', 'error');
+            }
+        } catch (e) {
+            zohoImportResult = { success: false, imported: 0, errors: [e.message] };
+            toastStore.add('Import failed: ' + e.message, 'error');
+        } finally {
+            zohoImportRunning = false;
+        }
+    }
+
     async function testZohoFetchThreads() {
         if (!zohoThreadTicketId) return;
         zohoThreadRunning = true;
         zohoThreadResult = null;
         zohoThreadJsonOpen = false;
+        zohoImportResult = null;
         const t0 = Date.now();
         try {
             const res = await api.post('/S/api/zoho/ticket-threads', { ticketId: zohoThreadTicketId, _from_env: true });
@@ -488,6 +515,32 @@ Copy this to ChatGPT/Claude for analysis
                                         {zohoThreadJsonOpen ? '▼' : '▶'} View threads ({zohoThreadResult.threads.length})
                                     </button>
                                     {#if zohoThreadJsonOpen}<pre class="result-json">{JSON.stringify(zohoThreadResult.threads, null, 2)}</pre>{/if}
+                                    <button class="run-btn import-run" on:click={importThreadsToSystem}
+                                        disabled={zohoImportRunning}>
+                                        {#if zohoImportRunning}<span class="spinner">⏳</span> Saving...
+                                        {:else}💾 Save to System{/if}
+                                    </button>
+                                {/if}
+                            </div>
+                        {/if}
+                        {#if zohoImportResult}
+                            <div class="result-box" class:result-ok={zohoImportResult.success} class:result-err={!zohoImportResult.success}>
+                                {#if zohoImportResult.success}
+                                    <div class="result-summary">✅ {zohoImportResult.imported} thread(s) saved to documents table</div>
+                                {:else}
+                                    <div class="result-summary error">❌ Import failed ({zohoImportResult.imported} saved)</div>
+                                {/if}
+                                {#if zohoImportResult.errors?.length}
+                                    <div class="import-errors">
+                                        {#each zohoImportResult.errors as err}
+                                            <div class="import-error-line">⚠️ {err}</div>
+                                        {/each}
+                                    </div>
+                                {/if}
+                                {#if zohoImportResult.documents?.length}
+                                    <div class="import-ids">
+                                        Document IDs: {zohoImportResult.documents.join(', ')}
+                                    </div>
                                 {/if}
                             </div>
                         {/if}
@@ -767,4 +820,10 @@ Copy this to ChatGPT/Claude for analysis
 
     .creds-note { font-size: 0.8rem; color: #555; text-align: center; }
     .creds-note code { background: #2a2a2a; border-radius: 3px; padding: 0.1rem 0.35rem; color: #888; }
+
+    .import-run { background: #1a3a5c; color: #93c5fd; border: 1px solid #3b82f6; align-self: flex-start; padding: 0.5rem 1rem; font-size: 0.85rem; }
+    .import-run:hover:not(:disabled) { background: #1e40af; }
+    .import-errors { display: flex; flex-direction: column; gap: 0.25rem; }
+    .import-error-line { font-size: 0.8rem; color: #fbbf24; background: rgba(251,191,36,0.07); border-radius: 4px; padding: 0.3rem 0.6rem; }
+    .import-ids { font-size: 0.75rem; color: #555; font-family: monospace; word-break: break-all; }
 </style>

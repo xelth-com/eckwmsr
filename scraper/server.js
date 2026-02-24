@@ -772,6 +772,50 @@ app.post('/api/zoho/ticket-threads', (req, res) => {
     });
 });
 
+// ─── ZOHO DESK: Download Attachment (using browser session cookies) ───────────
+// Takes a Zoho attachment href, logs in, fetches the file buffer via page.evaluate,
+// and returns it as base64 + mimeType so the Rust server can save it to CAS.
+app.post('/api/zoho/download-attachment', (req, res) => {
+    runScraper(req, res, async (page, data) => {
+        const username  = data.username || (data._from_env ? process.env.ZOHO_EMAIL    : '') || '';
+        const password  = data.password || (data._from_env ? process.env.ZOHO_PASSWORD : '') || '';
+        const targetUrl = data.url || process.env.ZOHO_URL || 'https://desk.inbodysupport.eu/agent/';
+        const href      = data.href;
+        const fileName  = data.fileName || 'attachment';
+
+        if (!href) throw new Error('href is required');
+        if (!username || !password) throw new Error('ZOHO_EMAIL or ZOHO_PASSWORD missing. Provide in body or .env');
+
+        await zohoLogin(page, targetUrl, username, password);
+
+        if (!page.url().includes('desk.inbodysupport.eu')) {
+            await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
+        }
+
+        // Use browser session cookies to fetch the file buffer
+        const result = await page.evaluate(async ([href]) => {
+            const resp = await fetch(href, { credentials: 'include' });
+            if (!resp.ok) return { error: resp.status, message: await resp.text().catch(() => '') };
+            const mimeType = resp.headers.get('content-type') || 'application/octet-stream';
+            const buffer   = await resp.arrayBuffer();
+            // Convert ArrayBuffer → base64 in chunks to avoid call-stack limits
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            const chunk = 8192;
+            for (let i = 0; i < bytes.length; i += chunk) {
+                binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+            }
+            return { base64: btoa(binary), mimeType, size: bytes.length };
+        }, [href]);
+
+        if (result.error) throw new Error(`Download failed HTTP ${result.error}: ${result.message}`);
+
+        console.log(`[Zoho] Downloaded attachment: ${fileName} (${result.mimeType}, ${result.size} bytes)`);
+        return { success: true, base64: result.base64, mimeType: result.mimeType, fileName };
+    });
+});
+
 // ─── Debug / Info ─────────────────────────────────────────────────────────────
 
 // GET /debug — shows scraper info and available endpoints.
@@ -790,9 +834,10 @@ app.get('/debug', (req, res) => {
             { method: 'POST', path: '/api/dhl/fetch',     desc: 'Fetch DHL shipment list via CSV (supports debug:true)' },
             { method: 'POST', path: '/api/exact/inventory/fetch',  desc: 'Exact Online: fetch inventory (stub)' },
             { method: 'POST', path: '/api/exact/quotation/create', desc: 'Exact Online: create Kostenvoranschlag (stub)' },
-            { method: 'POST', path: '/api/zoho/tickets',         desc: 'Zoho Desk: login and fetch tickets' },
-            { method: 'POST', path: '/api/zoho/ticket-threads', desc: 'Zoho Desk: fetch ticket email threads with HTML content and attachments' },
-            { method: 'GET',  path: '/debug',                   desc: 'This page' },
+            { method: 'POST', path: '/api/zoho/tickets',               desc: 'Zoho Desk: login and fetch tickets' },
+            { method: 'POST', path: '/api/zoho/ticket-threads',       desc: 'Zoho Desk: fetch ticket email threads with HTML content and attachments' },
+            { method: 'POST', path: '/api/zoho/download-attachment',  desc: 'Zoho Desk: download a single attachment as base64 using session cookies' },
+            { method: 'GET',  path: '/debug',                         desc: 'This page' },
         ]
     });
 });
