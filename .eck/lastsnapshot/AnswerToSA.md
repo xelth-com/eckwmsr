@@ -1,40 +1,39 @@
-# feat(support, ui): Build Support module UI for viewing imported tickets and attachments
+# feat(workflows, ai): Link Support tickets to RMA workflow with AI summarization
 
 ## What was done
 
-### Step 1 — Rust: New read endpoints in `src/handlers/support.rs`
+### Step 1 — Rust: `POST /api/support/tickets/:ticket_id/summary`
+**File:** `src/handlers/support.rs` (`summarize_ticket`)
 
-**`GET /api/support/tickets`** (`list_tickets`)
-- Fetches all documents with `type = "support_thread"` from the DB
-- Groups by `payload.ticketId` in memory using a HashMap
-- Returns `Vec<TicketSummary>` (ticketId, subject, status, customer, thread_count, latest_update)
-- Sorted newest-first by `createdTime` string (ISO 8601 sorts lexicographically)
+- Checks `state.ai_client` — returns 503 if not configured
+- Fetches and filters threads by ticketId (same pattern as `get_ticket_threads`)
+- Strips HTML tags with `regex::Regex` → builds a labelled plain-text transcript per thread (direction | from | time)
+- Calls `ai.generate_content(system_prompt, transcript)` with primary→fallback model routing
+- Returns `{"summary": "<text>"}` or appropriate HTTP error
+- Registered in `main.rs`: `POST /api/support/tickets/:ticket_id/summary`
 
-**`GET /api/support/tickets/:ticket_id/threads`** (`get_ticket_threads`)
-- Fetches all `support_thread` documents, filters by `payload.ticketId == ticket_id` in Rust
-- Returns the documents sorted oldest-first (conversation order)
-- Each document carries the full payload including `content` (HTML body) and metadata
+### Step 2 — Support detail UI (`web/.../support/[id]/+page.svelte`)
 
-Both endpoints registered in `src/main.rs` alongside the existing import route.
+Added:
+- `customerEmail` reactive variable (from Zoho contact)
+- `summary`, `isSummarizing`, `summaryError` state
+- `generateSummary()` — calls the new summary endpoint, handles loading/error states
+- `createRMA()` — builds a URL with `URLSearchParams` (`ticketId`, `name`, `email`, `issue`) and navigates to `/dashboard/rma/new?...`
+- **"✨ Summarize with AI"** button in the ticket header meta row
+- **"📋 Create RMA"** button beside it
+- **Summary panel** appears below the header once a summary exists; includes a "→ Use as issue description in new RMA" shortcut button
 
-### Step 2 — Layout: Support nav link
-Added a "Support" link in `web/src/routes/dashboard/+layout.svelte` after RMA Requests.
+### Step 3 — RMA detail UI (`web/.../rma/[id]/+page.svelte`)
 
-### Step 3 — Ticket List (`web/src/routes/dashboard/support/+page.svelte`)
-- Calls `GET /api/support/tickets` on mount
-- Table: Ticket ID, Subject, Customer, Status (colored badge), Thread count, Latest Update
-- Clicking a row navigates to `/dashboard/support/{ticketId}`
-- Empty state directs user to the Scrapers page import flow
-
-### Step 4 — Ticket Detail (`web/src/routes/dashboard/support/[id]/+page.svelte`)
-- Route param `id` = Zoho ticketId
-- Fetches threads from `GET /api/support/tickets/{id}/threads`
-- Loads attachments per thread via existing `GET /api/attachments/document/{docUUID}` in parallel
-- Renders email HTML with `{@html thread.payload.content}` in a scrollable container
-  - Applied `:global()` CSS rules to constrain images, tables, links inside `{@html}` content
-- Inbound/outbound threads visually distinguished by colored left border + direction badge
-- Attachments shown as clickable pills; images get a 40×40px thumbnail preview
-- All file links point to `GET /api/files/{file_id}` (public CAS endpoint)
+Added:
+- `import { base } from '$app/paths'`
+- `metadata: {}` field in formData initial state
+- `onMount` reads `$page.url.searchParams` when `isNew`:
+  - `ticketId` → stored in `formData.metadata.ticketId`
+  - `name` / `email` / `issue` → pre-fill customer name, email, issue description
+- **Linked ticket banner** (green border section, full-width) shown when `formData.metadata?.ticketId` is present
+  - Contains link back to the source Support ticket detail page
+  - Persists on existing RMAs if their `metadata.ticketId` was stored on creation
 
 ## Verification
 - `cargo check` passes clean

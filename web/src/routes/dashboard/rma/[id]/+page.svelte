@@ -3,6 +3,7 @@
     import { onMount } from 'svelte';
     import { api } from '$lib/api';
     import { goto } from '$app/navigation';
+    import { base } from '$app/paths';
     import { toastStore } from '$lib/stores/toastStore';
 
     let rmaId = $page.params.id;
@@ -18,15 +19,24 @@
         productName: '',
         issueDescription: '',
         status: 'pending',
-        priority: 'normal'
+        priority: 'normal',
+        metadata: {},
     };
 
     onMount(async () => {
         if (!isNew) {
             await loadRMA();
         } else {
-            // Generate temp ID for display or handle via backend
             formData.rmaNumber = 'AUTO-GEN';
+            // Pre-fill from URL params when coming from a Support ticket
+            const params = $page.url.searchParams;
+            const linkedTicketId = params.get('ticketId');
+            if (linkedTicketId) {
+                formData.metadata = { ticketId: linkedTicketId };
+                formData.customerName    = params.get('name')  || '';
+                formData.customerEmail   = params.get('email') || '';
+                formData.issueDescription = params.get('issue') || '';
+            }
         }
     });
 
@@ -99,6 +109,21 @@
         <div class="loading">Loading...</div>
     {:else}
         <form class="form-grid" on:submit|preventDefault={handleSubmit}>
+            <!-- Linked Support Ticket banner -->
+            {#if formData.metadata?.ticketId}
+                <div class="section full linked-banner">
+                    <div class="linked-row">
+                        <span class="linked-label">🔗 Linked Support Ticket</span>
+                        <a
+                            class="linked-link"
+                            href="{base}/dashboard/support/{formData.metadata.ticketId}"
+                        >
+                            #{formData.metadata.ticketId} → View Ticket
+                        </a>
+                    </div>
+                </div>
+            {/if}
+
             <!-- Customer Info -->
             <div class="section">
                 <h2>Customer Information</h2>
@@ -253,6 +278,27 @@
         border-radius: 4px;
         cursor: pointer;
     }
+
+    .linked-banner {
+        background: #1a2a1a;
+        border-color: #22c55e;
+        padding: 0.9rem 1.25rem;
+    }
+    .linked-row {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+    .linked-label { color: #4ade80; font-weight: 600; font-size: 0.9rem; }
+    .linked-link {
+        color: #93c5fd;
+        text-decoration: none;
+        font-family: monospace;
+        font-size: 0.85rem;
+        border-bottom: 1px dashed #4a69bd;
+    }
+    .linked-link:hover { color: #bfdbfe; border-bottom-color: #93c5fd; }
 
     @media (max-width: 700px) {
         .form-grid { grid-template-columns: 1fr; }

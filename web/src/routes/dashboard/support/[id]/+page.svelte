@@ -82,6 +82,38 @@
     $: customer = threads[0]?.payload?.ticket?.contact?.fullName
         ?? threads[0]?.payload?.from
         ?? '';
+    $: customerEmail = threads[0]?.payload?.ticket?.contact?.email ?? '';
+
+    // ── AI Summary ────────────────────────────────────────────────────────────
+    let summary = '';
+    let isSummarizing = false;
+    let summaryError = '';
+
+    async function generateSummary() {
+        isSummarizing = true;
+        summaryError = '';
+        try {
+            const res = await api.post(`/api/support/tickets/${ticketId}/summary`, {});
+            summary = res.summary ?? '';
+            if (!summary) summaryError = 'AI returned an empty response.';
+        } catch (e) {
+            summaryError = e.message;
+            toastStore.add('AI summary failed: ' + e.message, 'error');
+        } finally {
+            isSummarizing = false;
+        }
+    }
+
+    // ── Create RMA ────────────────────────────────────────────────────────────
+    function createRMA() {
+        const params = new URLSearchParams({
+            ticketId,
+            name:  customer || '',
+            email: customerEmail,
+            issue: summary || subject || '',
+        });
+        goto(`${base}/dashboard/rma/new?${params}`);
+    }
 </script>
 
 <div class="detail-page">
@@ -102,12 +134,40 @@
                 {#if ticketStatus}
                     <span class="status-chip">{ticketStatus}</span>
                 {/if}
+                <div class="header-actions">
+                    <button class="ai-btn" on:click={generateSummary} disabled={isSummarizing || threads.length === 0}>
+                        {#if isSummarizing}
+                            <span class="spinner">⏳</span> Summarizing…
+                        {:else}
+                            ✨ Summarize with AI
+                        {/if}
+                    </button>
+                    <button class="rma-btn" on:click={createRMA} disabled={threads.length === 0}>
+                        📋 Create RMA
+                    </button>
+                </div>
             </div>
             <h1 class="ticket-subject">{subject}</h1>
             {#if customer}
-                <div class="ticket-customer">👤 {customer}</div>
+                <div class="ticket-customer">👤 {customer}{#if customerEmail} · {customerEmail}{/if}</div>
             {/if}
         </header>
+
+        {#if summary || isSummarizing || summaryError}
+            <div class="summary-panel">
+                <div class="summary-title">✨ AI Summary</div>
+                {#if isSummarizing}
+                    <div class="summary-loading">Generating summary…</div>
+                {:else if summaryError}
+                    <div class="summary-error">⚠️ {summaryError}</div>
+                {:else}
+                    <div class="summary-text">{summary}</div>
+                    <button class="use-as-issue-btn" on:click={createRMA} title="Open RMA creation pre-filled with this summary">
+                        → Use as issue description in new RMA
+                    </button>
+                {/if}
+            </div>
+        {/if}
 
         {#if threads.length === 0}
             <div class="empty-state">No threads found for this ticket.</div>
@@ -313,4 +373,72 @@
     }
     .att-icon { font-size: 1.1rem; }
     .att-label { font-family: monospace; font-size: 0.75rem; color: #888; }
+
+    /* Header action buttons */
+    .header-actions { display: flex; gap: 0.5rem; margin-left: auto; flex-wrap: wrap; }
+    .ai-btn {
+        background: #2a1a4a;
+        color: #d8b4fe;
+        border: 1px solid #a855f7;
+        border-radius: 6px;
+        padding: 0.4rem 0.9rem;
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    .ai-btn:hover:not(:disabled) { background: #4a1d6e; }
+    .ai-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .spinner { display: inline-block; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .rma-btn {
+        background: #1a3a1a;
+        color: #4ade80;
+        border: 1px solid #22c55e;
+        border-radius: 6px;
+        padding: 0.4rem 0.9rem;
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    .rma-btn:hover:not(:disabled) { background: #14532d; }
+    .rma-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* AI Summary panel */
+    .summary-panel {
+        background: #1a1130;
+        border: 1px solid #7c3aed;
+        border-radius: 10px;
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+    .summary-title {
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: #a855f7;
+        letter-spacing: 0.5px;
+        margin-bottom: 0.75rem;
+    }
+    .summary-loading { color: #888; font-style: italic; }
+    .summary-error { color: #fbbf24; font-size: 0.85rem; }
+    .summary-text {
+        color: #e2d9f3;
+        font-size: 0.9rem;
+        line-height: 1.7;
+        white-space: pre-wrap;
+    }
+    .use-as-issue-btn {
+        margin-top: 0.75rem;
+        background: none;
+        border: none;
+        color: #a855f7;
+        font-size: 0.82rem;
+        cursor: pointer;
+        padding: 0;
+        text-decoration: underline;
+    }
+    .use-as-issue-btn:hover { color: #d8b4fe; }
 </style>

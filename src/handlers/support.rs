@@ -134,6 +134,86 @@ pub async fn get_ticket_threads(
     Ok(Json(filtered))
 }
 
+/// POST /api/support/tickets/:ticket_id/summary
+///
+/// Fetches all threads for the ticket, strips HTML tags, concatenates the plain
+/// text, and asks Gemini to produce a concise technical summary.
+/// Returns `{"summary": "<text>"}`.
+/// Returns 503 if AI is not configured.
+pub async fn summarize_ticket(
+    State(state): State<Arc<AppState>>,
+    Path(ticket_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let ai = state.ai_client.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "AI not configured (GEMINI_API_KEY missing)".to_string(),
+        )
+    })?;
+
+    // Fetch and filter threads (reuse same logic as get_ticket_threads)
+    let docs = document::Entity::find()
+        .filter(document::Column::Type.eq("support_thread"))
+        .filter(document::Column::DeletedAt.is_null())
+        .order_by_asc(document::Column::CreatedAt)
+        .all(&state.db)
+        .await
+        .map_err(|e| {
+            error!("[Support] DB error in summarize_ticket {}: {}", ticket_id, e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
+
+    let threads: Vec<&document::Model> = docs
+        .iter()
+        .filter(|doc| doc.payload["ticketId"].as_str() == Some(ticket_id.as_str()))
+        .collect();
+
+    if threads.is_empty() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("No threads found for ticket {}", ticket_id),
+        ));
+    }
+
+    // Strip HTML tags and build a labelled transcript
+    let tag_re = regex::Regex::new(r"<[^>]*>").expect("static HTML regex");
+    let mut parts: Vec<String> = Vec::with_capacity(threads.len());
+    for thread in &threads {
+        let direction = thread.payload["direction"].as_str().unwrap_or("?");
+        let from      = thread.payload["from"].as_str().unwrap_or("?");
+        let time      = thread.payload["createdTime"].as_str().unwrap_or("?");
+        let raw       = thread.payload["content"].as_str().unwrap_or("");
+        let plain     = tag_re.replace_all(raw, " ");
+        let clean: String = plain.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !clean.is_empty() {
+            parts.push(format!("[{direction} | From: {from} | {time}]\n{clean}"));
+        }
+    }
+
+    if parts.is_empty() {
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, "All threads have empty content".to_string()));
+    }
+
+    let transcript = parts.join("\n\n---\n\n");
+
+    let system_prompt = "You are a technical support assistant. Summarize the following customer \
+        support email thread. Extract the core hardware or software problem, any troubleshooting \
+        steps already attempted, and the current status. Be concise and professional. \
+        Format the result in 2-3 short paragraphs.";
+
+    let summary = ai
+        .generate_content(system_prompt, &transcript)
+        .await
+        .map_err(|e| {
+            error!("[Support] AI summary failed for ticket {}: {}", ticket_id, e);
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("AI error: {}", e))
+        })?;
+
+    info!("[Support] AI summary generated for ticket {} ({} chars)", ticket_id, summary.len());
+
+    Ok(Json(serde_json::json!({ "summary": summary })))
+}
+
 // ── Request / Response types ──────────────────────────────────────────────────
 
 #[derive(Deserialize)]

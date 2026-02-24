@@ -281,6 +281,7 @@ async fn main() {
         // Support API
         .route("/support/tickets", get(handlers::support::list_tickets))
         .route("/support/tickets/:ticket_id/threads", get(handlers::support::get_ticket_threads))
+        .route("/support/tickets/:ticket_id/summary", post(handlers::support::summarize_ticket))
         .route("/support/import-thread", post(handlers::support::import_thread))
         // Admin Config & Mesh Management
         .route("/admin/config/save-key", post(handlers::config::save_network_key))
