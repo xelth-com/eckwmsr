@@ -1,0 +1,316 @@
+<script>
+    import { page } from '$app/stores';
+    import { onMount } from 'svelte';
+    import { api } from '$lib/api';
+    import { goto } from '$app/navigation';
+    import { base } from '$app/paths';
+    import { toastStore } from '$lib/stores/toastStore.js';
+
+    const ticketId = $page.params.id;
+
+    let threads = [];
+    let loading = true;
+    let error = null;
+
+    // attachment arrays keyed by document UUID
+    let attachments = {};
+
+    onMount(async () => {
+        await loadThreads();
+    });
+
+    async function loadThreads() {
+        loading = true;
+        error = null;
+        try {
+            threads = await api.get(`/api/support/tickets/${ticketId}/threads`);
+            // Load attachments for every thread in parallel
+            await Promise.all(threads.map(t => loadAttachments(t.documentId)));
+        } catch (e) {
+            console.error(e);
+            error = e.message;
+            toastStore.add('Failed to load threads', 'error');
+        } finally {
+            loading = false;
+        }
+    }
+
+    async function loadAttachments(docId) {
+        if (!docId) return;
+        try {
+            const res = await api.get(`/api/attachments/document/${docId}`);
+            attachments[docId] = res || [];
+        } catch {
+            attachments[docId] = [];
+        }
+        // Trigger reactivity
+        attachments = attachments;
+    }
+
+    function formatDate(str) {
+        if (!str) return '-';
+        try {
+            return new Date(str).toLocaleString('de-DE', {
+                day: '2-digit', month: '2-digit', year: 'numeric',
+                hour: '2-digit', minute: '2-digit'
+            });
+        } catch { return str; }
+    }
+
+    function directionLabel(dir) {
+        if (dir === 'in') return { label: 'Inbound', cls: 'inbound' };
+        if (dir === 'out') return { label: 'Outbound', cls: 'outbound' };
+        return { label: dir || '?', cls: 'other' };
+    }
+
+    function isImage(mimeType) {
+        return (mimeType || '').startsWith('image/');
+    }
+
+    function fileIcon(mimeType) {
+        const m = mimeType || '';
+        if (m.includes('pdf')) return '📄';
+        if (m.includes('excel') || m.includes('spreadsheet') || m.includes('xlsx')) return '📊';
+        if (m.includes('word') || m.includes('doc')) return '📝';
+        if (m.startsWith('image/')) return '🖼️';
+        return '📎';
+    }
+
+    // Subject from the first thread's ticket metadata (consistent across threads)
+    $: subject = threads[0]?.payload?.ticket?.subject ?? ticketId;
+    $: ticketStatus = threads[0]?.payload?.ticket?.status ?? '';
+    $: customer = threads[0]?.payload?.ticket?.contact?.fullName
+        ?? threads[0]?.payload?.from
+        ?? '';
+</script>
+
+<div class="detail-page">
+    <div class="back-link">
+        <button class="back-btn" on:click={() => goto(`${base}/dashboard/support`)}>
+            ← Back to tickets
+        </button>
+    </div>
+
+    {#if loading}
+        <div class="loading">Loading threads...</div>
+    {:else if error}
+        <div class="error-box">Failed to load: {error}</div>
+    {:else}
+        <header class="ticket-header">
+            <div class="ticket-meta">
+                <span class="ticket-id-badge">#{ticketId}</span>
+                {#if ticketStatus}
+                    <span class="status-chip">{ticketStatus}</span>
+                {/if}
+            </div>
+            <h1 class="ticket-subject">{subject}</h1>
+            {#if customer}
+                <div class="ticket-customer">👤 {customer}</div>
+            {/if}
+        </header>
+
+        {#if threads.length === 0}
+            <div class="empty-state">No threads found for this ticket.</div>
+        {:else}
+            <div class="thread-list">
+                {#each threads as thread (thread.documentId)}
+                    {@const dir = directionLabel(thread.payload?.direction)}
+                    <div class="thread-card {dir.cls}">
+                        <div class="thread-header">
+                            <span class="dir-badge {dir.cls}">{dir.label}</span>
+                            <span class="thread-from">{thread.payload?.from ?? ''}</span>
+                            <span class="thread-date">{formatDate(thread.payload?.createdTime)}</span>
+                        </div>
+
+                        {#if thread.payload?.content}
+                            <div class="thread-body-wrapper">
+                                <!-- Rendered as HTML — Zoho email body -->
+                                <div class="thread-html-body">
+                                    {@html thread.payload.content}
+                                </div>
+                            </div>
+                        {:else}
+                            <div class="thread-empty">(no content)</div>
+                        {/if}
+
+                        <!-- Attachments for this thread -->
+                        {#if attachments[thread.documentId]?.length}
+                            <div class="attachment-list">
+                                {#each attachments[thread.documentId] as att}
+                                    <a
+                                        class="attachment-item"
+                                        href="{base}/api/files/{att.file_id}"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        title={att.file_id}
+                                    >
+                                        {#if isImage(att.mime_type)}
+                                            <img
+                                                class="att-thumb"
+                                                src="{base}/api/files/{att.file_id}"
+                                                alt="attachment"
+                                            />
+                                        {:else}
+                                            <span class="att-icon">{fileIcon(att.mime_type)}</span>
+                                        {/if}
+                                        <span class="att-label">{att.mime_type}</span>
+                                    </a>
+                                {/each}
+                            </div>
+                        {/if}
+                    </div>
+                {/each}
+            </div>
+        {/if}
+    {/if}
+</div>
+
+<style>
+    .detail-page { padding: 0; }
+
+    .back-btn {
+        background: none;
+        border: none;
+        color: #4a69bd;
+        font-size: 0.9rem;
+        cursor: pointer;
+        padding: 0 0 1rem 0;
+        font-weight: 600;
+        transition: color 0.2s;
+    }
+    .back-btn:hover { color: #93c5fd; }
+
+    .loading { color: #aaa; text-align: center; padding: 3rem; }
+    .error-box {
+        padding: 2rem;
+        color: #ff6b6b;
+        background: #1e1e1e;
+        border: 1px solid #ff6b6b;
+        border-radius: 8px;
+    }
+    .empty-state { color: #666; padding: 2rem; text-align: center; }
+
+    /* Ticket header */
+    .ticket-header {
+        background: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 10px;
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+    .ticket-meta { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }
+    .ticket-id-badge {
+        font-family: monospace;
+        font-size: 0.8rem;
+        color: #4a69bd;
+        background: #1a2a3a;
+        border: 1px solid #4a69bd;
+        border-radius: 4px;
+        padding: 0.15rem 0.5rem;
+    }
+    .status-chip {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #aaa;
+        background: #2a2a2a;
+        border: 1px solid #444;
+        border-radius: 10px;
+        padding: 0.15rem 0.6rem;
+        text-transform: capitalize;
+    }
+    .ticket-subject { font-size: 1.4rem; color: #fff; margin: 0 0 0.4rem 0; line-height: 1.3; }
+    .ticket-customer { font-size: 0.85rem; color: #888; }
+
+    /* Thread list */
+    .thread-list { display: flex; flex-direction: column; gap: 1rem; }
+
+    .thread-card {
+        background: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 10px;
+        overflow: hidden;
+    }
+    .thread-card.inbound  { border-left: 3px solid #4a69bd; }
+    .thread-card.outbound { border-left: 3px solid #22c55e; }
+
+    .thread-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem 1rem;
+        background: #252525;
+        border-bottom: 1px solid #2a2a2a;
+        flex-wrap: wrap;
+    }
+    .dir-badge {
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        flex-shrink: 0;
+    }
+    .dir-badge.inbound  { background: #1a2a3a; color: #93c5fd; }
+    .dir-badge.outbound { background: #1a3a1a; color: #4ade80; }
+    .dir-badge.other    { background: #2a2a2a; color: #aaa; }
+
+    .thread-from { font-size: 0.85rem; color: #ccc; flex: 1; font-family: monospace; }
+    .thread-date { font-size: 0.8rem; color: #666; font-family: monospace; margin-left: auto; white-space: nowrap; }
+
+    .thread-body-wrapper { overflow: auto; max-height: 600px; }
+
+    /* HTML email body — scoped using :global to reach into {@html} content */
+    .thread-html-body {
+        padding: 1rem 1.25rem;
+        font-size: 0.9rem;
+        line-height: 1.6;
+        color: #ddd;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+    /* Allow styles from Zoho HTML to render, but constrain widths/overflow */
+    :global(.thread-html-body img) { max-width: 100%; height: auto; }
+    :global(.thread-html-body table) { max-width: 100%; overflow-x: auto; display: block; }
+    :global(.thread-html-body a) { color: #93c5fd; }
+    :global(.thread-html-body blockquote) {
+        border-left: 3px solid #444;
+        margin: 0.5rem 0;
+        padding: 0.25rem 0.75rem;
+        color: #888;
+    }
+
+    .thread-empty { padding: 1rem 1.25rem; color: #555; font-style: italic; }
+
+    /* Attachments */
+    .attachment-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+        padding: 0.75rem 1rem;
+        border-top: 1px solid #2a2a2a;
+        background: #1a1a1a;
+    }
+    .attachment-item {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        background: #252525;
+        border: 1px solid #333;
+        border-radius: 6px;
+        padding: 0.4rem 0.7rem;
+        text-decoration: none;
+        color: #ccc;
+        font-size: 0.8rem;
+        transition: background 0.15s, border-color 0.15s;
+    }
+    .attachment-item:hover { background: #2a2a2a; border-color: #4a69bd; color: #93c5fd; }
+    .att-thumb {
+        width: 40px;
+        height: 40px;
+        object-fit: cover;
+        border-radius: 3px;
+        border: 1px solid #333;
+    }
+    .att-icon { font-size: 1.1rem; }
+    .att-label { font-family: monospace; font-size: 0.75rem; color: #888; }
+</style>

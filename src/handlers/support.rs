@@ -1,10 +1,15 @@
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    Json,
+};
 use base64::Engine;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -13,6 +18,121 @@ use crate::{
 };
 
 const SCRAPER_BASE: &str = "http://127.0.0.1:3211";
+
+// ── Read handlers ─────────────────────────────────────────────────────────────
+
+/// A compact summary of a unique support ticket derived from its imported threads.
+#[derive(Serialize)]
+pub struct TicketSummary {
+    pub ticket_id: String,
+    pub subject: String,
+    pub status: String,
+    pub customer: String,
+    pub thread_count: usize,
+    pub latest_update: String,
+}
+
+/// GET /api/support/tickets
+///
+/// Lists all unique support tickets that have been imported into the `documents`
+/// table (type = "support_thread"). Tickets are grouped by `payload.ticketId`
+/// and returned sorted newest-first.
+pub async fn list_tickets(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<TicketSummary>>, StatusCode> {
+    let docs = document::Entity::find()
+        .filter(document::Column::Type.eq("support_thread"))
+        .filter(document::Column::DeletedAt.is_null())
+        .order_by_desc(document::Column::CreatedAt)
+        .all(&state.db)
+        .await
+        .map_err(|e| {
+            error!("[Support] DB error listing tickets: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    // Group by ticketId, keeping insertion order (newest first per group)
+    let mut ticket_map: HashMap<String, Vec<document::Model>> = HashMap::new();
+    for doc in docs {
+        let tid = doc.payload["ticketId"]
+            .as_str()
+            .unwrap_or("unknown")
+            .to_string();
+        ticket_map.entry(tid).or_default().push(doc);
+    }
+
+    let mut summaries: Vec<TicketSummary> = ticket_map
+        .into_iter()
+        .map(|(ticket_id, threads)| {
+            // threads[0] is the latest (sorted desc above)
+            let latest = &threads[0];
+            let meta = &latest.payload["ticket"];
+
+            let subject = meta["subject"]
+                .as_str()
+                .unwrap_or("(no subject)")
+                .to_string();
+
+            let status = meta["status"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string();
+
+            let customer = meta["contact"]["fullName"]
+                .as_str()
+                .or_else(|| meta["contactId"].as_str())
+                .or_else(|| latest.payload["from"].as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let latest_update = latest.payload["createdTime"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+
+            TicketSummary {
+                ticket_id,
+                subject,
+                status,
+                customer,
+                thread_count: threads.len(),
+                latest_update,
+            }
+        })
+        .collect();
+
+    // Sort newest-first by the createdTime string (ISO 8601 sorts lexicographically)
+    summaries.sort_by(|a, b| b.latest_update.cmp(&a.latest_update));
+
+    Ok(Json(summaries))
+}
+
+/// GET /api/support/tickets/:ticket_id/threads
+///
+/// Returns all thread documents for the given `ticketId`, sorted oldest-first
+/// so the UI can display them in conversation order.
+pub async fn get_ticket_threads(
+    State(state): State<Arc<AppState>>,
+    Path(ticket_id): Path<String>,
+) -> Result<Json<Vec<document::Model>>, StatusCode> {
+    let docs = document::Entity::find()
+        .filter(document::Column::Type.eq("support_thread"))
+        .filter(document::Column::DeletedAt.is_null())
+        .order_by_asc(document::Column::CreatedAt)
+        .all(&state.db)
+        .await
+        .map_err(|e| {
+            error!("[Support] DB error fetching threads for {}: {}", ticket_id, e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let filtered: Vec<document::Model> = docs
+        .into_iter()
+        .filter(|doc| doc.payload["ticketId"].as_str() == Some(ticket_id.as_str()))
+        .collect();
+
+    Ok(Json(filtered))
+}
 
 // ── Request / Response types ──────────────────────────────────────────────────
 

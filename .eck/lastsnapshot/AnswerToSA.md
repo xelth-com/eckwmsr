@@ -1,31 +1,40 @@
-# feat(support, scraper): Implement generic support thread import with CAS attachments
+# feat(support, ui): Build Support module UI for viewing imported tickets and attachments
 
 ## What was done
 
-### Step A — Node.js scraper: `POST /api/zoho/download-attachment`
-**File:** `scraper/server.js`
+### Step 1 — Rust: New read endpoints in `src/handlers/support.rs`
 
-Added a new Playwright endpoint that:
-1. Logs into Zoho Desk using session credentials (from `.env` via `_from_env: true`)
-2. Uses `page.evaluate()` with `fetch(..., { credentials: 'include' })` to download the attachment file buffer inside the browser context (carrying Zoho session cookies)
-3. Converts the `ArrayBuffer` to base64 in chunks of 8192 bytes
-4. Returns `{ success, base64, mimeType, fileName }` to the caller
+**`GET /api/support/tickets`** (`list_tickets`)
+- Fetches all documents with `type = "support_thread"` from the DB
+- Groups by `payload.ticketId` in memory using a HashMap
+- Returns `Vec<TicketSummary>` (ticketId, subject, status, customer, thread_count, latest_update)
+- Sorted newest-first by `createdTime` string (ISO 8601 sorts lexicographically)
 
-### Step B — Rust handler: `POST /api/support/import-thread`
-**New file:** `src/handlers/support.rs`
+**`GET /api/support/tickets/:ticket_id/threads`** (`get_ticket_threads`)
+- Fetches all `support_thread` documents, filters by `payload.ticketId == ticket_id` in Rust
+- Returns the documents sorted oldest-first (conversation order)
+- Each document carries the full payload including `content` (HTML body) and metadata
 
-For each thread:
-- Saves to `documents` table with `type = "support_thread"`, full metadata in JSONB payload
-- Calls scraper to download each attachment, saves to CAS via `file_store.save_file()`
-- Links files to the document via `entity_attachments` (res_model="document")
+Both endpoints registered in `src/main.rs` alongside the existing import route.
 
-Registered in `src/handlers/mod.rs` and `src/main.rs` (JWT-protected).
+### Step 2 — Layout: Support nav link
+Added a "Support" link in `web/src/routes/dashboard/+layout.svelte` after RMA Requests.
 
-### Step C — Svelte UI
-**File:** `web/src/routes/dashboard/scrapers/+page.svelte`
+### Step 3 — Ticket List (`web/src/routes/dashboard/support/+page.svelte`)
+- Calls `GET /api/support/tickets` on mount
+- Table: Ticket ID, Subject, Customer, Status (colored badge), Thread count, Latest Update
+- Clicking a row navigates to `/dashboard/support/{ticketId}`
+- Empty state directs user to the Scrapers page import flow
 
-Added "Save to System" button inside the thread results box, import state variables,
-`importThreadsToSystem()` function, and result display with error reporting.
+### Step 4 — Ticket Detail (`web/src/routes/dashboard/support/[id]/+page.svelte`)
+- Route param `id` = Zoho ticketId
+- Fetches threads from `GET /api/support/tickets/{id}/threads`
+- Loads attachments per thread via existing `GET /api/attachments/document/{docUUID}` in parallel
+- Renders email HTML with `{@html thread.payload.content}` in a scrollable container
+  - Applied `:global()` CSS rules to constrain images, tables, links inside `{@html}` content
+- Inbound/outbound threads visually distinguished by colored left border + direction badge
+- Attachments shown as clickable pills; images get a 40×40px thumbnail preview
+- All file links point to `GET /api/files/{file_id}` (public CAS endpoint)
 
 ## Verification
-- `cargo check` passes clean (no new errors)
+- `cargo check` passes clean
