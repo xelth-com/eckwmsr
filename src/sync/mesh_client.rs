@@ -20,7 +20,7 @@ impl MeshClient {
 
     /// Get Merkle root (level 0) for an entity type
     pub async fn get_merkle_root(&self, entity_type: &str) -> Result<MerkleNode> {
-        let url = format!("{}/E/mesh/merkle", self.base_url);
+        let url = format!("{}/mesh/merkle", self.base_url);
         let req = MerkleRequest {
             entity_type: entity_type.to_string(),
             level: 0,
@@ -39,7 +39,7 @@ impl MeshClient {
 
     /// Get Merkle bucket (level 1) for an entity type + bucket key
     pub async fn get_merkle_bucket(&self, entity_type: &str, bucket: &str) -> Result<MerkleNode> {
-        let url = format!("{}/E/mesh/merkle", self.base_url);
+        let url = format!("{}/mesh/merkle", self.base_url);
         let req = MerkleRequest {
             entity_type: entity_type.to_string(),
             level: 1,
@@ -58,7 +58,7 @@ impl MeshClient {
 
     /// Pull specific entities from a peer by ID
     pub async fn pull_entities(&self, entity_type: &str, ids: Vec<String>) -> Result<PullResponse> {
-        let url = format!("{}/E/mesh/pull", self.base_url);
+        let url = format!("{}/mesh/pull", self.base_url);
         let req = PullRequest {
             entity_type: entity_type.to_string(),
             ids,
@@ -79,7 +79,7 @@ impl MeshClient {
         shipments: Vec<stock_picking_delivery::Model>,
         users: Vec<SyncableUser>,
     ) -> Result<()> {
-        let url = format!("{}/E/mesh/push", self.base_url);
+        let url = format!("{}/mesh/push", self.base_url);
         let payload = PushPayload {
             products,
             locations,
