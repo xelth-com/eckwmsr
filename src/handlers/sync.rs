@@ -27,11 +27,17 @@ pub async fn trigger_sync(
     info!("[API] Manual sync pull triggered");
 
     match state.sync_engine.pull_and_apply().await {
-        Ok(applied) => Ok(Json(SyncTriggerResponse {
-            success: true,
-            message: "Sync pull completed successfully".to_string(),
-            applied_count: applied,
-        })),
+        Ok(applied) => {
+            // Clean up setup account if real users were synced in
+            if applied > 0 {
+                crate::db::cleanup_setup_if_real_users(&state.db, &state.setup_password).await;
+            }
+            Ok(Json(SyncTriggerResponse {
+                success: true,
+                message: "Sync pull completed successfully".to_string(),
+                applied_count: applied,
+            }))
+        }
         Err(e) => Ok(Json(SyncTriggerResponse {
             success: false,
             message: format!("Sync pull failed: {}", e),
