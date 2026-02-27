@@ -37,3 +37,6 @@ Added:
 
 ## Verification
 - `cargo check` passes clean
+
+
+[SYSTEM: EMBEDDED]
