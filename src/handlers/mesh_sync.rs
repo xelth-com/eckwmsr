@@ -1,11 +1,58 @@
 use axum::{extract::State, http::StatusCode, Json};
-use sea_orm::{ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::db::AppState;
-use crate::models::{location, product, stock_picking_delivery};
+use crate::models::{location, product, stock_picking_delivery, user};
 use crate::sync::merkle_tree::{MerkleNode, MerkleRequest, MerkleTreeService};
+
+/// User representation that includes all fields for sync (password hash, pin, deleted_at).
+/// The normal user::Model skips these in serialization for API safety.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SyncableUser {
+    pub id: uuid::Uuid,
+    pub username: String,
+    pub password: String,
+    pub email: String,
+    pub name: Option<String>,
+    pub role: String,
+    pub user_type: String,
+    pub company: Option<String>,
+    pub google_id: Option<String>,
+    pub pin: String,
+    pub is_active: bool,
+    pub last_login: Option<chrono::DateTime<chrono::Utc>>,
+    pub failed_login_attempts: i64,
+    pub preferred_language: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl From<user::Model> for SyncableUser {
+    fn from(u: user::Model) -> Self {
+        Self {
+            id: u.id,
+            username: u.username,
+            password: u.password,
+            email: u.email,
+            name: u.name,
+            role: u.role,
+            user_type: u.user_type,
+            company: u.company,
+            google_id: u.google_id,
+            pin: u.pin,
+            is_active: u.is_active,
+            last_login: u.last_login,
+            failed_login_attempts: u.failed_login_attempts,
+            preferred_language: u.preferred_language,
+            created_at: u.created_at,
+            updated_at: u.updated_at,
+            deleted_at: u.deleted_at,
+        }
+    }
+}
 
 // --- MERKLE ---
 
@@ -33,12 +80,14 @@ pub struct PullRequest {
 #[derive(Serialize, Deserialize)]
 pub struct PullResponse {
     pub entity_type: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub products: Vec<product::Model>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub locations: Vec<location::Model>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub shipments: Vec<stock_picking_delivery::Model>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub users: Vec<SyncableUser>,
 }
 
 /// POST /mesh/pull — Fetch specific entities by ID for sync
@@ -51,41 +100,62 @@ pub async fn pull_handler(
         products: vec![],
         locations: vec![],
         shipments: vec![],
+        users: vec![],
     };
 
-    let parsed_ids: Vec<i64> = payload
-        .ids
-        .iter()
-        .filter_map(|s| s.parse().ok())
-        .collect();
-
     match payload.entity_type.as_str() {
-        "product" => {
-            resp.products = product::Entity::find()
-                .filter(product::Column::Id.is_in(parsed_ids))
+        "user" => {
+            // Parse UUIDs for user IDs
+            let parsed_uuids: Vec<uuid::Uuid> = payload
+                .ids
+                .iter()
+                .filter_map(|s| s.parse().ok())
+                .collect();
+            let users = user::Entity::find()
+                .filter(user::Column::Id.is_in(parsed_uuids))
+                .filter(user::Column::Email.ne("admin@setup.local"))
                 .all(&state.db)
                 .await
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            resp.users = users.into_iter().map(SyncableUser::from).collect();
         }
-        "location" => {
-            resp.locations = location::Entity::find()
-                .filter(location::Column::Id.is_in(parsed_ids))
-                .all(&state.db)
-                .await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        }
-        "shipment" => {
-            resp.shipments = stock_picking_delivery::Entity::find()
-                .filter(stock_picking_delivery::Column::Id.is_in(parsed_ids))
-                .all(&state.db)
-                .await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        }
-        other => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!("Unknown entity_type: {}", other),
-            ));
+        _ => {
+            // Products, locations, shipments use i64 IDs
+            let parsed_ids: Vec<i64> = payload
+                .ids
+                .iter()
+                .filter_map(|s| s.parse().ok())
+                .collect();
+
+            match payload.entity_type.as_str() {
+                "product" => {
+                    resp.products = product::Entity::find()
+                        .filter(product::Column::Id.is_in(parsed_ids))
+                        .all(&state.db)
+                        .await
+                        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+                }
+                "location" => {
+                    resp.locations = location::Entity::find()
+                        .filter(location::Column::Id.is_in(parsed_ids))
+                        .all(&state.db)
+                        .await
+                        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+                }
+                "shipment" => {
+                    resp.shipments = stock_picking_delivery::Entity::find()
+                        .filter(stock_picking_delivery::Column::Id.is_in(parsed_ids))
+                        .all(&state.db)
+                        .await
+                        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+                }
+                other => {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        format!("Unknown entity_type: {}", other),
+                    ));
+                }
+            }
         }
     }
 
@@ -102,6 +172,8 @@ pub struct PushPayload {
     pub locations: Vec<location::Model>,
     #[serde(default)]
     pub shipments: Vec<stock_picking_delivery::Model>,
+    #[serde(default)]
+    pub users: Vec<SyncableUser>,
 }
 
 /// POST /mesh/push — Apply incoming entities (upsert)
@@ -170,6 +242,58 @@ pub async fn push_handler(
             .exec(db)
             .await;
         applied += 1;
+    }
+
+    // Upsert synced users (skip setup account)
+    for su in payload.users {
+        if su.email == "admin@setup.local" {
+            continue;
+        }
+        let am = user::ActiveModel {
+            id: Set(su.id),
+            username: Set(su.username),
+            password: Set(su.password),
+            email: Set(su.email),
+            name: Set(su.name),
+            role: Set(su.role),
+            user_type: Set(su.user_type),
+            company: Set(su.company),
+            google_id: Set(su.google_id),
+            pin: Set(su.pin),
+            is_active: Set(su.is_active),
+            last_login: Set(su.last_login),
+            failed_login_attempts: Set(su.failed_login_attempts),
+            preferred_language: Set(su.preferred_language),
+            created_at: Set(su.created_at),
+            updated_at: Set(su.updated_at),
+            deleted_at: Set(su.deleted_at),
+        };
+        let _ = user::Entity::insert(am)
+            .on_conflict(
+                sea_orm::sea_query::OnConflict::column(user::Column::Id)
+                    .update_columns([
+                        user::Column::Username,
+                        user::Column::Password,
+                        user::Column::Email,
+                        user::Column::Name,
+                        user::Column::Role,
+                        user::Column::UserType,
+                        user::Column::Pin,
+                        user::Column::IsActive,
+                        user::Column::PreferredLanguage,
+                        user::Column::UpdatedAt,
+                        user::Column::DeletedAt,
+                    ])
+                    .to_owned(),
+            )
+            .exec(db)
+            .await;
+        applied += 1;
+    }
+
+    // If any users were synced, clean up the setup account
+    if applied > 0 {
+        crate::db::cleanup_setup_if_real_users(db, &state.setup_password).await;
     }
 
     Ok(Json(serde_json::json!({

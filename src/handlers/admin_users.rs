@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::{db::AppState, models::user};
+use crate::{db::AppState, handlers::mesh_sync::SyncableUser, models::{mesh_node, user}};
 
 // --- DTOs ---
 
@@ -54,6 +54,37 @@ pub struct SafeUser {
     pub created_at: chrono::DateTime<chrono::Utc>,
     #[serde(rename = "updatedAt")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+// --- Sync helper ---
+
+/// Push a user to all known mesh peers via the relay
+fn push_user_to_peers(state: Arc<AppState>, user_model: user::Model) {
+    tokio::spawn(async move {
+        let syncable = SyncableUser::from(user_model.clone());
+        let entity_id = user_model.id.to_string();
+
+        // Get all mesh nodes
+        let nodes = mesh_node::Entity::find()
+            .all(&state.db)
+            .await
+            .unwrap_or_default();
+
+        for node in nodes {
+            if let Err(e) = state
+                .sync_engine
+                .push_entity(&node.instance_id, "user", &entity_id, &syncable)
+                .await
+            {
+                tracing::warn!(
+                    "Failed to push user {} to {}: {}",
+                    entity_id,
+                    node.instance_id,
+                    e
+                );
+            }
+        }
+    });
 }
 
 // --- Handlers ---
@@ -139,6 +170,9 @@ pub async fn create_user(
     // Remove setup account if it exists — a real user now takes over
     crate::db::cleanup_setup_if_real_users(&state.db, &state.setup_password).await;
 
+    // Sync new user to all mesh peers
+    push_user_to_peers(state, inserted.clone());
+
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({
@@ -192,10 +226,13 @@ pub async fn update_user(
     }
     active_user.updated_at = Set(chrono::Utc::now());
 
-    active_user
+    let updated = active_user
         .update(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Sync updated user to all mesh peers
+    push_user_to_peers(state, updated);
 
     Ok(Json(serde_json::json!({
         "id": id,
@@ -217,10 +254,13 @@ pub async fn delete_user(
 
     let mut active_user = user_model.into_active_model();
     active_user.deleted_at = Set(Some(chrono::Utc::now()));
-    active_user
+    let deleted = active_user
         .update(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Sync soft-deleted user to all mesh peers
+    push_user_to_peers(state, deleted);
 
     Ok(Json(serde_json::json!({
         "message": "User deleted"

@@ -7,7 +7,8 @@ use tracing::{error, info, warn};
 use std::collections::BTreeMap;
 
 use crate::models::sync_packet::EntityMetadata;
-use crate::models::{location, product, stock_picking_delivery};
+use crate::models::{location, product, stock_picking_delivery, user};
+use crate::handlers::mesh_sync::SyncableUser;
 use crate::sync::mesh_client::MeshClient;
 use crate::sync::merkle_tree::{compare_trees, MerkleRequest, MerkleTreeService};
 use crate::sync::relay_client::RelayClient;
@@ -106,6 +107,52 @@ impl SyncEngine {
         Ok(())
     }
 
+    async fn upsert_user(&self, su: SyncableUser) -> Result<(), DbErr> {
+        if su.email == "admin@setup.local" {
+            return Ok(()); // Never sync the temporary setup account
+        }
+        let am = user::ActiveModel {
+            id: sea_orm::Set(su.id),
+            username: sea_orm::Set(su.username),
+            password: sea_orm::Set(su.password),
+            email: sea_orm::Set(su.email),
+            name: sea_orm::Set(su.name),
+            role: sea_orm::Set(su.role),
+            user_type: sea_orm::Set(su.user_type),
+            company: sea_orm::Set(su.company),
+            google_id: sea_orm::Set(su.google_id),
+            pin: sea_orm::Set(su.pin),
+            is_active: sea_orm::Set(su.is_active),
+            last_login: sea_orm::Set(su.last_login),
+            failed_login_attempts: sea_orm::Set(su.failed_login_attempts),
+            preferred_language: sea_orm::Set(su.preferred_language),
+            created_at: sea_orm::Set(su.created_at),
+            updated_at: sea_orm::Set(su.updated_at),
+            deleted_at: sea_orm::Set(su.deleted_at),
+        };
+        user::Entity::insert(am)
+            .on_conflict(
+                OnConflict::column(user::Column::Id)
+                    .update_columns([
+                        user::Column::Username,
+                        user::Column::Password,
+                        user::Column::Email,
+                        user::Column::Name,
+                        user::Column::Role,
+                        user::Column::UserType,
+                        user::Column::Pin,
+                        user::Column::IsActive,
+                        user::Column::PreferredLanguage,
+                        user::Column::UpdatedAt,
+                        user::Column::DeletedAt,
+                    ])
+                    .to_owned(),
+            )
+            .exec(&self.db)
+            .await?;
+        Ok(())
+    }
+
     // --- Relay pull ---
 
     pub async fn pull_and_apply(&self) -> Result<usize, String> {
@@ -135,6 +182,7 @@ impl SyncEngine {
             let result = match packet.entity_type.as_str() {
                 "product" => self.process_product_packet(&packet).await,
                 "location" => self.process_location_packet(&packet).await,
+                "user" => self.process_user_packet(&packet).await,
                 other => {
                     warn!("Unsupported entity type from relay: {}", other);
                     continue;
@@ -179,6 +227,19 @@ impl SyncEngine {
             .decrypt_packet(packet)
             .map_err(|e| format!("decrypt: {}", e))?;
         self.upsert_location(data)
+            .await
+            .map_err(|e| format!("upsert: {}", e))
+    }
+
+    async fn process_user_packet(
+        &self,
+        packet: &crate::models::sync_packet::EncryptedSyncPacket,
+    ) -> Result<(), String> {
+        let data: SyncableUser = self
+            .security
+            .decrypt_packet(packet)
+            .map_err(|e| format!("decrypt: {}", e))?;
+        self.upsert_user(data)
             .await
             .map_err(|e| format!("upsert: {}", e))
     }
@@ -333,6 +394,9 @@ impl SyncEngine {
         for s in resp.shipments {
             self.upsert_shipment(s).await?;
         }
+        for u in resp.users {
+            self.upsert_user(u).await?;
+        }
         Ok(())
     }
 
@@ -344,38 +408,57 @@ impl SyncEngine {
     ) -> anyhow::Result<()> {
         use sea_orm::{ColumnTrait, QueryFilter};
 
-        let parsed_ids: Vec<i64> = ids.iter().filter_map(|s| s.parse().ok()).collect();
-        if parsed_ids.is_empty() {
-            return Ok(());
-        }
-
         let mut products = vec![];
         let mut locations = vec![];
         let mut shipments = vec![];
+        let mut users = vec![];
 
         match entity_type {
-            "product" => {
-                products = product::Entity::find()
-                    .filter(product::Column::Id.is_in(parsed_ids))
-                    .all(&self.db)
-                    .await?;
+            "user" => {
+                let parsed_uuids: Vec<uuid::Uuid> =
+                    ids.iter().filter_map(|s| s.parse().ok()).collect();
+                if !parsed_uuids.is_empty() {
+                    let user_models = user::Entity::find()
+                        .filter(user::Column::Id.is_in(parsed_uuids))
+                        .filter(user::Column::Email.ne("admin@setup.local"))
+                        .all(&self.db)
+                        .await?;
+                    users = user_models.into_iter().map(SyncableUser::from).collect();
+                }
             }
-            "location" => {
-                locations = location::Entity::find()
-                    .filter(location::Column::Id.is_in(parsed_ids))
-                    .all(&self.db)
-                    .await?;
+            _ => {
+                let parsed_ids: Vec<i64> =
+                    ids.iter().filter_map(|s| s.parse().ok()).collect();
+                if parsed_ids.is_empty() {
+                    return Ok(());
+                }
+                match entity_type {
+                    "product" => {
+                        products = product::Entity::find()
+                            .filter(product::Column::Id.is_in(parsed_ids))
+                            .all(&self.db)
+                            .await?;
+                    }
+                    "location" => {
+                        locations = location::Entity::find()
+                            .filter(location::Column::Id.is_in(parsed_ids))
+                            .all(&self.db)
+                            .await?;
+                    }
+                    "shipment" => {
+                        shipments = stock_picking_delivery::Entity::find()
+                            .filter(stock_picking_delivery::Column::Id.is_in(parsed_ids))
+                            .all(&self.db)
+                            .await?;
+                    }
+                    _ => {}
+                }
             }
-            "shipment" => {
-                shipments = stock_picking_delivery::Entity::find()
-                    .filter(stock_picking_delivery::Column::Id.is_in(parsed_ids))
-                    .all(&self.db)
-                    .await?;
-            }
-            _ => {}
         }
 
-        client.push_entities(products, locations, shipments).await?;
+        client
+            .push_entities(products, locations, shipments, users)
+            .await?;
         Ok(())
     }
 }

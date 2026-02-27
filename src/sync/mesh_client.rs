@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::handlers::mesh_sync::{PullRequest, PullResponse, PushPayload};
+use crate::handlers::mesh_sync::{PullRequest, PullResponse, PushPayload, SyncableUser};
 use crate::models::{location, product, stock_picking_delivery};
 use crate::sync::merkle_tree::{MerkleNode, MerkleRequest};
 
@@ -77,12 +77,14 @@ impl MeshClient {
         products: Vec<product::Model>,
         locations: Vec<location::Model>,
         shipments: Vec<stock_picking_delivery::Model>,
+        users: Vec<SyncableUser>,
     ) -> Result<()> {
         let url = format!("{}/E/mesh/push", self.base_url);
         let payload = PushPayload {
             products,
             locations,
             shipments,
+            users,
         };
 
         let resp = self.client.post(&url).json(&payload).send().await?;
