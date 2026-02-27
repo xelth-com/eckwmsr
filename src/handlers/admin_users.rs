@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::{db::AppState, handlers::mesh_sync::SyncableUser, models::{mesh_node, user}};
+use crate::{db::AppState, handlers::mesh_sync::SyncableUser, models::{mesh_node, user}, sync::mesh_client::MeshClient};
 
 // --- DTOs ---
 
@@ -58,29 +58,76 @@ pub struct SafeUser {
 
 // --- Sync helper ---
 
-/// Push a user to all known mesh peers via the relay
+/// Check if a URL is directly reachable (not localhost/loopback)
+fn is_url_directly_reachable(url: &str) -> bool {
+    if url.is_empty() {
+        return false;
+    }
+    let lower = url.to_lowercase();
+    !lower.contains("localhost") && !lower.contains("127.0.0.1") && !lower.contains("0.0.0.0")
+}
+
+/// Push a user to all known mesh peers: direct HTTP → WebSocket signal → relay fallback
 fn push_user_to_peers(state: Arc<AppState>, user_model: user::Model) {
     tokio::spawn(async move {
         let syncable = SyncableUser::from(user_model.clone());
         let entity_id = user_model.id.to_string();
+        let my_instance_id = state.config.instance_id.clone();
 
-        // Get all mesh nodes
         let nodes = mesh_node::Entity::find()
             .all(&state.db)
             .await
             .unwrap_or_default();
 
         for node in nodes {
+            // 1) Direct HTTP push — if peer has a reachable base_url
+            if is_url_directly_reachable(&node.base_url) {
+                let client = MeshClient::new(&node.base_url);
+                match client
+                    .push_entities(vec![], vec![], vec![], vec![syncable.clone()])
+                    .await
+                {
+                    Ok(()) => {
+                        tracing::info!(
+                            "Direct push user {} to {} ({})",
+                            entity_id, node.instance_id, node.base_url
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Direct push to {} failed: {}, trying fallbacks",
+                            node.instance_id, e
+                        );
+                    }
+                }
+            }
+
+            // 2) WebSocket signal — if peer is connected to our hub
+            if state.mesh_hub.is_peer_connected(&node.instance_id) {
+                state
+                    .mesh_hub
+                    .notify_update(&my_instance_id, "user", &entity_id);
+                tracing::info!(
+                    "WS signal sent for user {} to peer {}",
+                    entity_id, node.instance_id
+                );
+                continue;
+            }
+
+            // 3) Relay fallback — last resort
+            tracing::warn!(
+                "Using relay for user {} → {} (no direct/WS path)",
+                entity_id, node.instance_id
+            );
             if let Err(e) = state
                 .sync_engine
                 .push_entity(&node.instance_id, "user", &entity_id, &syncable)
                 .await
             {
                 tracing::warn!(
-                    "Failed to push user {} to {}: {}",
-                    entity_id,
-                    node.instance_id,
-                    e
+                    "Relay push user {} to {} failed: {}",
+                    entity_id, node.instance_id, e
                 );
             }
         }

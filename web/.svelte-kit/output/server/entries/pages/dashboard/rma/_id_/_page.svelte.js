@@ -1,6 +1,7 @@
-import { c as store_get, e as escape_html, h as attr, u as unsubscribe_stores } from "../../../../../chunks/index2.js";
+import { c as store_get, e as escape_html, h as attr, u as unsubscribe_stores, f as stringify } from "../../../../../chunks/index2.js";
 import { p as page } from "../../../../../chunks/stores.js";
 import "../../../../../chunks/authStore.js";
+import { b as base } from "../../../../../chunks/server.js";
 import "../../../../../chunks/url.js";
 import "@sveltejs/kit/internal/server";
 import "../../../../../chunks/root.js";
@@ -23,7 +24,8 @@ function _page($$renderer, $$props) {
       productName: "",
       issueDescription: "",
       status: "pending",
-      priority: "normal"
+      priority: "normal",
+      metadata: {}
     };
     $$renderer2.push(`<div class="detail-page svelte-3lraag"><div class="header svelte-3lraag"><button class="back-btn svelte-3lraag">← Back</button> <div class="title-row svelte-3lraag"><h1 class="svelte-3lraag">${escape_html(isNew ? "New RMA Request" : `RMA ${formData.rmaNumber}`)}</h1> `);
     if (!isNew) {
@@ -38,7 +40,14 @@ function _page($$renderer, $$props) {
       $$renderer2.push(`<div class="loading">Loading...</div>`);
     } else {
       $$renderer2.push("<!--[!-->");
-      $$renderer2.push(`<form class="form-grid svelte-3lraag"><div class="section svelte-3lraag"><h2 class="svelte-3lraag">Customer Information</h2> <div class="field svelte-3lraag"><label class="svelte-3lraag">Customer Name *</label> <input type="text"${attr("value", formData.customerName)} required="" class="svelte-3lraag"/></div> <div class="field svelte-3lraag"><label class="svelte-3lraag">Email</label> <input type="email"${attr("value", formData.customerEmail)} class="svelte-3lraag"/></div></div> <div class="section svelte-3lraag"><h2 class="svelte-3lraag">Product Details</h2> <div class="field svelte-3lraag"><label class="svelte-3lraag">Product SKU *</label> <input type="text"${attr("value", formData.productSku)} required="" class="code-input svelte-3lraag"/></div> <div class="field svelte-3lraag"><label class="svelte-3lraag">Product Name</label> <input type="text"${attr("value", formData.productName)} class="svelte-3lraag"/></div></div> <div class="section full svelte-3lraag"><h2 class="svelte-3lraag">Issue Description</h2> <textarea rows="4" class="svelte-3lraag">`);
+      $$renderer2.push(`<form class="form-grid svelte-3lraag">`);
+      if (formData.metadata?.ticketId) {
+        $$renderer2.push("<!--[-->");
+        $$renderer2.push(`<div class="section full linked-banner svelte-3lraag"><div class="linked-row svelte-3lraag"><span class="linked-label svelte-3lraag">🔗 Linked Support Ticket</span> <a class="linked-link svelte-3lraag"${attr("href", `${stringify(base)}/dashboard/support/${stringify(formData.metadata.ticketId)}`)}>#${escape_html(formData.metadata.ticketId)} → View Ticket</a></div></div>`);
+      } else {
+        $$renderer2.push("<!--[!-->");
+      }
+      $$renderer2.push(`<!--]--> <div class="section svelte-3lraag"><h2 class="svelte-3lraag">Customer Information</h2> <div class="field svelte-3lraag"><label class="svelte-3lraag">Customer Name *</label> <input type="text"${attr("value", formData.customerName)} required="" class="svelte-3lraag"/></div> <div class="field svelte-3lraag"><label class="svelte-3lraag">Email</label> <input type="email"${attr("value", formData.customerEmail)} class="svelte-3lraag"/></div></div> <div class="section svelte-3lraag"><h2 class="svelte-3lraag">Product Details</h2> <div class="field svelte-3lraag"><label class="svelte-3lraag">Product SKU *</label> <input type="text"${attr("value", formData.productSku)} required="" class="code-input svelte-3lraag"/></div> <div class="field svelte-3lraag"><label class="svelte-3lraag">Product Name</label> <input type="text"${attr("value", formData.productName)} class="svelte-3lraag"/></div></div> <div class="section full svelte-3lraag"><h2 class="svelte-3lraag">Issue Description</h2> <textarea rows="4" class="svelte-3lraag">`);
       const $$body = escape_html(formData.issueDescription);
       if ($$body) {
         $$renderer2.push(`${$$body}`);

@@ -26,7 +26,6 @@
  * ```
  */
 declare module '$env/static/private' {
-	export const ACLOCAL_PATH: string;
 	export const ALLUSERSPROFILE: string;
 	export const APPDATA: string;
 	export const ChocolateyInstall: string;
@@ -38,9 +37,7 @@ declare module '$env/static/private' {
 	export const CommonProgramW6432: string;
 	export const COMPUTERNAME: string;
 	export const COMSPEC: string;
-	export const CONFIG_SITE: string;
 	export const COREPACK_ENABLE_AUTO_PIN: string;
-	export const DISPLAY: string;
 	export const DriverData: string;
 	export const EDITOR: string;
 	export const EXEPATH: string;
@@ -49,21 +46,11 @@ declare module '$env/static/private' {
 	export const HOME: string;
 	export const HOMEDRIVE: string;
 	export const HOMEPATH: string;
-	export const HOSTNAME: string;
-	export const INFOPATH: string;
 	export const INIT_CWD: string;
-	export const LANG: string;
 	export const LOCALAPPDATA: string;
 	export const LOGONSERVER: string;
-	export const MANPATH: string;
-	export const MINGW_CHOST: string;
-	export const MINGW_PACKAGE_PREFIX: string;
-	export const MINGW_PREFIX: string;
 	export const MINIMAX_API_KEY: string;
 	export const MSYSTEM: string;
-	export const MSYSTEM_CARCH: string;
-	export const MSYSTEM_CHOST: string;
-	export const MSYSTEM_PREFIX: string;
 	export const NODE: string;
 	export const NoDefaultCurrentDirectoryInExePath: string;
 	export const NODE_ENV: string;
@@ -89,16 +76,10 @@ declare module '$env/static/private' {
 	export const NUMBER_OF_PROCESSORS: string;
 	export const OLDPWD: string;
 	export const OneDrive: string;
-	export const ORIGINAL_PATH: string;
-	export const ORIGINAL_TEMP: string;
-	export const ORIGINAL_TMP: string;
 	export const OS: string;
 	export const OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: string;
 	export const PATH: string;
 	export const PATHEXT: string;
-	export const PKG_CONFIG_PATH: string;
-	export const PKG_CONFIG_SYSTEM_INCLUDE_PATH: string;
-	export const PKG_CONFIG_SYSTEM_LIBRARY_PATH: string;
 	export const PLINK_PROTOCOL: string;
 	export const PROCESSOR_ARCHITECTURE: string;
 	export const PROCESSOR_IDENTIFIER: string;
@@ -114,13 +95,11 @@ declare module '$env/static/private' {
 	export const SESSIONNAME: string;
 	export const SHELL: string;
 	export const SHLVL: string;
-	export const SSH_ASKPASS: string;
 	export const SYSTEMDRIVE: string;
 	export const SYSTEMROOT: string;
 	export const TEMP: string;
 	export const TERM: string;
 	export const TMP: string;
-	export const TMPDIR: string;
 	export const USERDOMAIN: string;
 	export const USERDOMAIN_ROAMINGPROFILE: string;
 	export const USERNAME: string;
@@ -159,7 +138,6 @@ declare module '$env/static/public' {
  */
 declare module '$env/dynamic/private' {
 	export const env: {
-		ACLOCAL_PATH: string;
 		ALLUSERSPROFILE: string;
 		APPDATA: string;
 		ChocolateyInstall: string;
@@ -171,9 +149,7 @@ declare module '$env/dynamic/private' {
 		CommonProgramW6432: string;
 		COMPUTERNAME: string;
 		COMSPEC: string;
-		CONFIG_SITE: string;
 		COREPACK_ENABLE_AUTO_PIN: string;
-		DISPLAY: string;
 		DriverData: string;
 		EDITOR: string;
 		EXEPATH: string;
@@ -182,21 +158,11 @@ declare module '$env/dynamic/private' {
 		HOME: string;
 		HOMEDRIVE: string;
 		HOMEPATH: string;
-		HOSTNAME: string;
-		INFOPATH: string;
 		INIT_CWD: string;
-		LANG: string;
 		LOCALAPPDATA: string;
 		LOGONSERVER: string;
-		MANPATH: string;
-		MINGW_CHOST: string;
-		MINGW_PACKAGE_PREFIX: string;
-		MINGW_PREFIX: string;
 		MINIMAX_API_KEY: string;
 		MSYSTEM: string;
-		MSYSTEM_CARCH: string;
-		MSYSTEM_CHOST: string;
-		MSYSTEM_PREFIX: string;
 		NODE: string;
 		NoDefaultCurrentDirectoryInExePath: string;
 		NODE_ENV: string;
@@ -222,16 +188,10 @@ declare module '$env/dynamic/private' {
 		NUMBER_OF_PROCESSORS: string;
 		OLDPWD: string;
 		OneDrive: string;
-		ORIGINAL_PATH: string;
-		ORIGINAL_TEMP: string;
-		ORIGINAL_TMP: string;
 		OS: string;
 		OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: string;
 		PATH: string;
 		PATHEXT: string;
-		PKG_CONFIG_PATH: string;
-		PKG_CONFIG_SYSTEM_INCLUDE_PATH: string;
-		PKG_CONFIG_SYSTEM_LIBRARY_PATH: string;
 		PLINK_PROTOCOL: string;
 		PROCESSOR_ARCHITECTURE: string;
 		PROCESSOR_IDENTIFIER: string;
@@ -247,13 +207,11 @@ declare module '$env/dynamic/private' {
 		SESSIONNAME: string;
 		SHELL: string;
 		SHLVL: string;
-		SSH_ASKPASS: string;
 		SYSTEMDRIVE: string;
 		SYSTEMROOT: string;
 		TEMP: string;
 		TERM: string;
 		TMP: string;
-		TMPDIR: string;
 		USERDOMAIN: string;
 		USERDOMAIN_ROAMINGPROFILE: string;
 		USERNAME: string;

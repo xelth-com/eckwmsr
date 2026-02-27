@@ -74,6 +74,13 @@ impl MeshHub {
         }
     }
 
+    pub fn is_peer_connected(&self, instance_id: &str) -> bool {
+        self.connected_peers
+            .lock()
+            .map(|p| p.contains_key(instance_id))
+            .unwrap_or(false)
+    }
+
     pub fn peer_count(&self) -> usize {
         self.connected_peers.lock().map(|p| p.len()).unwrap_or(0)
     }

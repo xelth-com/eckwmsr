@@ -23,6 +23,8 @@ function _page($$renderer, $$props) {
     let zohoDebug = false;
     let zohoRunning = false;
     let zohoLimit = 50;
+    let zohoThreadTicketId = "";
+    let zohoThreadRunning = false;
     $$renderer2.push(`<div class="scrapers-page svelte-1rxsw4v"><header class="svelte-1rxsw4v"><h1 class="svelte-1rxsw4v">🤖 Scrapers &amp; Integrations</h1> <div class="header-actions svelte-1rxsw4v"><button class="refresh-btn svelte-1rxsw4v"${attr("disabled", loading, true)}>${escape_html("↻ Refresh")}</button></div></header> <div class="tabs svelte-1rxsw4v"><button${attr_class("tab svelte-1rxsw4v", void 0, { "active": activeTab === "scraper" })}>🎛️ Scraper Admin</button> <button${attr_class("tab svelte-1rxsw4v", void 0, { "active": activeTab === "sync" })}>🔄 Sync History</button></div> `);
     if (error) {
       $$renderer2.push("<!--[-->");
@@ -148,7 +150,20 @@ function _page($$renderer, $$props) {
       {
         $$renderer2.push("<!--[!-->");
       }
-      $$renderer2.push(`<!--]--></div></div> <div class="creds-note svelte-1rxsw4v">Credentials are read from server <code class="svelte-1rxsw4v">.env</code> (OPAL_USERNAME / DHL_USERNAME). To test with different creds,
+      $$renderer2.push(`<!--]--> <div class="threads-section svelte-1rxsw4v"><div class="threads-row svelte-1rxsw4v"><input type="text"${attr("value", zohoThreadTicketId)} placeholder="Ticket ID for email threads"${attr("disabled", zohoThreadRunning, true)} class="ticket-id-input svelte-1rxsw4v"/> <button class="run-btn zoho-run svelte-1rxsw4v"${attr("disabled", !zohoThreadTicketId, true)}>`);
+      {
+        $$renderer2.push("<!--[!-->");
+        $$renderer2.push(`📧 Fetch Threads`);
+      }
+      $$renderer2.push(`<!--]--></button></div> `);
+      {
+        $$renderer2.push("<!--[!-->");
+      }
+      $$renderer2.push(`<!--]--> `);
+      {
+        $$renderer2.push("<!--[!-->");
+      }
+      $$renderer2.push(`<!--]--></div></div></div> <div class="creds-note svelte-1rxsw4v">Credentials are read from server <code class="svelte-1rxsw4v">.env</code> (OPAL_USERNAME / DHL_USERNAME). To test with different creds,
                 use curl directly on <code class="svelte-1rxsw4v">POST /S/api/opal/fetch</code> with <code class="svelte-1rxsw4v">"username"</code> and <code class="svelte-1rxsw4v">"password"</code> fields.</div></div>`);
     }
     $$renderer2.push(`<!--]--></div>`);

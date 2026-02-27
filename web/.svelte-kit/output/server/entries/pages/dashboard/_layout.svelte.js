@@ -142,7 +142,9 @@ function _layout($$renderer, $$props) {
       "active": store_get($$store_subs ??= {}, "$page", page).url.pathname.includes("/shipping")
     })}>Shipping</a> <a${attr("href", `${stringify(base)}/dashboard/rma`)}${attr_class("svelte-2agd5u", void 0, {
       "active": store_get($$store_subs ??= {}, "$page", page).url.pathname.includes("/rma")
-    })}>RMA Requests</a> <a${attr("href", `${stringify(base)}/dashboard/print`)}${attr_class("svelte-2agd5u", void 0, {
+    })}>RMA Requests</a> <a${attr("href", `${stringify(base)}/dashboard/support`)}${attr_class("svelte-2agd5u", void 0, {
+      "active": store_get($$store_subs ??= {}, "$page", page).url.pathname.includes("/support")
+    })}>Support</a> <a${attr("href", `${stringify(base)}/dashboard/print`)}${attr_class("svelte-2agd5u", void 0, {
       "active": store_get($$store_subs ??= {}, "$page", page).url.pathname.includes("/print")
     })}>Printing</a> <a${attr("href", `${stringify(base)}/dashboard/devices`)}${attr_class("svelte-2agd5u", void 0, {
       "active": store_get($$store_subs ??= {}, "$page", page).url.pathname.includes("/devices")
