@@ -305,6 +305,8 @@ async fn main() {
         .route("/pairing/check", post(handlers::pairing::check_pairing))
         .route("/pairing/approve", post(handlers::pairing::approve_pairing))
         .route("/pairing/finalize", post(handlers::pairing::finalize_pairing))
+        // Device status heartbeat (PDA calls this)
+        .route("/status", get(handlers::device::device_status))
         // Device Pairing (QR code + admin management)
         .route("/internal/pairing-qr", get(handlers::device::generate_pairing_qr))
         .route("/admin/devices", get(handlers::device::list_devices))

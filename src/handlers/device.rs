@@ -190,6 +190,55 @@ pub async fn register_device(
 }
 
 // ============================================================
+// GET /api/status (JWT protected — device heartbeat)
+// ============================================================
+
+pub async fn device_status(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(claims): axum::Extension<auth::Claims>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let device_id = &claims.id;
+
+    let device = registered_device::Entity::find_by_id(device_id)
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let status = match &device {
+        Some(d) if d.deleted_at.is_none() => {
+            d.status.clone().unwrap_or_else(|| "unknown".to_string())
+        }
+        _ => "unregistered".to_string(),
+    };
+
+    // Update last_seen
+    if let Some(d) = device {
+        if d.deleted_at.is_none() {
+            let mut active: registered_device::ActiveModel = d.into();
+            active.last_seen_at = Set(Some(Utc::now()));
+            let _ = active.update(&state.db).await;
+        }
+    }
+
+    // Include enc_key for active devices
+    let enc_key = if status == "active" {
+        std::env::var("ENC_KEY").ok().filter(|k| !k.is_empty())
+    } else {
+        None
+    };
+
+    let mut resp = serde_json::json!({
+        "status": status,
+    });
+
+    if let Some(key) = enc_key {
+        resp["enc_key"] = serde_json::Value::String(key);
+    }
+
+    Ok(Json(resp))
+}
+
+// ============================================================
 // GET /api/internal/pairing-qr (JWT protected)
 // ============================================================
 
