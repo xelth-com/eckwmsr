@@ -161,8 +161,24 @@ pub async fn seed_setup_account(db: &DatabaseConnection) -> Option<String> {
     if count > 0 && !setup_exists {
         return None;
     }
-    // If only setup account exists, regenerate password
+    // If setup exists, check if real users arrived (e.g. via sync)
     if setup_exists {
+        let real_count = user::Entity::find()
+            .filter(user::Column::Email.ne("admin@setup.local"))
+            .filter(user::Column::DeletedAt.is_null())
+            .count(db)
+            .await
+            .unwrap_or(0);
+        if real_count > 0 {
+            // Real users exist — remove setup account
+            let _ = user::Entity::delete_many()
+                .filter(user::Column::Email.eq("admin@setup.local"))
+                .exec(db)
+                .await;
+            tracing::info!("Setup account removed on startup — real users exist (synced).");
+            return None;
+        }
+        // Only setup account exists — regenerate password
         let password: String = rand::thread_rng()
             .sample_iter(&rand::distributions::Alphanumeric)
             .take(12)
