@@ -291,6 +291,23 @@ impl SyncEngine {
         Ok(())
     }
 
+    // --- Full sync (no merkle, for entity types without checksums) ---
+
+    /// Pull all entities of a given type from a peer (bypasses merkle tree).
+    /// Useful for users where entity_checksums isn't maintained.
+    pub async fn full_pull_from_peer(&self, peer_url: &str, entity_type: &str) -> anyhow::Result<usize> {
+        info!("SyncEngine: Full pull '{}' from {}", entity_type, peer_url);
+        let client = MeshClient::new(peer_url);
+        let response = client.pull_entities(entity_type, vec![]).await?;
+        let count = response.users.len()
+            + response.products.len()
+            + response.locations.len()
+            + response.shipments.len();
+        self.apply_pull_response(response).await?;
+        info!("SyncEngine: Full pull '{}' from {} — {} entities applied", entity_type, peer_url, count);
+        Ok(count)
+    }
+
     // --- Mesh sync ---
 
     pub async fn sync_with_peer(&self, peer_url: &str, entity_type: &str) -> anyhow::Result<()> {

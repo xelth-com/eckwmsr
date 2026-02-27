@@ -217,6 +217,45 @@ async fn main() {
     });
     info!("Heartbeat task started (every 5 min), mesh_id: {}", cfg.mesh_id);
 
+    // Startup sync: pull users from all known mesh peers (fire-and-forget)
+    {
+        let startup_sync_state = app_state.clone();
+        tokio::spawn(async move {
+            // Small delay to let the server finish binding
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            use sea_orm::EntityTrait;
+            let nodes = crate::models::mesh_node::Entity::find()
+                .all(&startup_sync_state.db)
+                .await
+                .unwrap_or_default();
+            for node in &nodes {
+                if node.base_url.is_empty() {
+                    continue;
+                }
+                match startup_sync_state
+                    .sync_engine
+                    .full_pull_from_peer(&node.base_url, "user")
+                    .await
+                {
+                    Ok(count) if count > 0 => {
+                        info!("Startup sync: pulled {} users from {}", count, node.instance_id);
+                        crate::db::cleanup_setup_if_real_users(
+                            &startup_sync_state.db,
+                            &startup_sync_state.setup_password,
+                        )
+                        .await;
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(
+                        "Startup sync with {} failed: {}",
+                        node.instance_id,
+                        e
+                    ),
+                }
+            }
+        });
+    }
+
     // Public API routes (no JWT — CAS files served via unguessable UUIDs)
     let public_api_routes = Router::new()
         .route("/files/:id", get(handlers::file::serve_file));
@@ -227,6 +266,7 @@ async fn main() {
         .route("/items", get(handlers::warehouse::list_items))
         .route("/scan", post(handlers::scan::handle_scan))
         .route("/sync/trigger", post(handlers::sync::trigger_sync))
+        .route("/sync/peers", post(handlers::sync::sync_with_peers))
         .route("/sync/push_test", post(handlers::sync::trigger_push))
         // Pickings API
         .route("/odoo/pickings", get(handlers::picking::list_odoo_pickings))

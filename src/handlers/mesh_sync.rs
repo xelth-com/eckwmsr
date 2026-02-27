@@ -105,22 +105,25 @@ pub async fn pull_handler(
 
     match payload.entity_type.as_str() {
         "user" => {
-            // Parse UUIDs for user IDs
+            // Parse UUIDs for user IDs; empty ids = return all (full sync)
             let parsed_uuids: Vec<uuid::Uuid> = payload
                 .ids
                 .iter()
                 .filter_map(|s| s.parse().ok())
                 .collect();
-            let users = user::Entity::find()
-                .filter(user::Column::Id.is_in(parsed_uuids))
-                .filter(user::Column::Email.ne("admin@setup.local"))
+            let mut query = user::Entity::find()
+                .filter(user::Column::Email.ne("admin@setup.local"));
+            if !parsed_uuids.is_empty() {
+                query = query.filter(user::Column::Id.is_in(parsed_uuids));
+            }
+            let users = query
                 .all(&state.db)
                 .await
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
             resp.users = users.into_iter().map(SyncableUser::from).collect();
         }
         _ => {
-            // Products, locations, shipments use i64 IDs
+            // Products, locations, shipments use i64 IDs; empty ids = return all
             let parsed_ids: Vec<i64> = payload
                 .ids
                 .iter()
@@ -129,22 +132,31 @@ pub async fn pull_handler(
 
             match payload.entity_type.as_str() {
                 "product" => {
-                    resp.products = product::Entity::find()
-                        .filter(product::Column::Id.is_in(parsed_ids))
+                    let mut query = product::Entity::find();
+                    if !parsed_ids.is_empty() {
+                        query = query.filter(product::Column::Id.is_in(parsed_ids));
+                    }
+                    resp.products = query
                         .all(&state.db)
                         .await
                         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
                 }
                 "location" => {
-                    resp.locations = location::Entity::find()
-                        .filter(location::Column::Id.is_in(parsed_ids))
+                    let mut query = location::Entity::find();
+                    if !parsed_ids.is_empty() {
+                        query = query.filter(location::Column::Id.is_in(parsed_ids));
+                    }
+                    resp.locations = query
                         .all(&state.db)
                         .await
                         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
                 }
                 "shipment" => {
-                    resp.shipments = stock_picking_delivery::Entity::find()
-                        .filter(stock_picking_delivery::Column::Id.is_in(parsed_ids))
+                    let mut query = stock_picking_delivery::Entity::find();
+                    if !parsed_ids.is_empty() {
+                        query = query.filter(stock_picking_delivery::Column::Id.is_in(parsed_ids));
+                    }
+                    resp.shipments = query
                         .all(&state.db)
                         .await
                         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
