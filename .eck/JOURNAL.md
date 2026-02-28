@@ -1,59 +1,60 @@
 # Development Journal
 
+## 2026-02-28 — Relay Pairing Fix + Three-State Health Check
+- type: fix+feat
+- scope: pairing, mesh, frontend
+- **Pairing relay fix**: `push_packet()` used server's `mesh_id` but `pull_packets_for()` used `routing_id` as mesh_id — packets never matched. Added `push_packet_to_channel()` that uses `channel_id` for both. All 3 pairing pushes (offer, response, approval) updated.
+- **Pairing verified end-to-end**: production created code, local entered it, approval modal appeared, both sides saved each other as mesh_nodes. Tested via Chrome automation.
+- **Three-state health**: `active` (green, direct ping OK) / `degraded` (yellow, direct ping failed < 5 min) / `offline` (red, both direct and relay confirm down). NAT peers checked via relay only.
+- **Health check interval**: 30s (was 60s). Relay queried only when needed.
+- **Frontend**: three-color dots in sidebar and Mesh Servers table. "Unstable" label for degraded.
+- **Deployed**: both local and production updated and verified.
+
+## 2026-02-28 — Mutual Peer Health Check + Identity Display
+- type: feat+fix
+- scope: mesh, pairing, frontend
+- **Mutual verification**: health check pings `GET /mesh/status?peer_id=<our_id>`, peer responds `known: true/false`. Only marks online if mutual recognition.
+- **Pairing base_url exchange**: both sides exchange real `base_url` and `instance_name` during pairing flow.
+- **Health endpoint**: `GET /E/health` returns `built_at` (compile-time) and `started_at`.
+- **Dashboard identity**: sidebar shows "This Server" with green dot. Mesh Servers tab shows identity card.
+
+## 2026-02-27 — Direct-First Sync + UUID Migration + Device Pairing
+- type: feat+fix
+- scope: sync, config, devices
+- **Direct-first sync**: `push_user_to_peers()` tries Direct HTTP > WS signal > Relay (3-tier fallback).
+- **MeshClient double /E fix**: base_url already contains `/E`, URLs were doubling it.
+- **Startup sync**: full-pull users from all known peers on boot.
+- **Device status endpoint**: `GET /api/status` for PDA heartbeat (JWT protected).
+- **UUID instance_id**: auto-generates UUID v4, writes back to `.env`. Old string IDs replaced.
+
 ## 2026-02-16 — Phase 2: WebSocket + Heartbeat + Mesh Networking
 - type: feat+fix
 - scope: sync, mesh, websocket
-- **WebSocket**: Implemented `/E/ws` handler using axum built-in WS support with tokio broadcast channel. Handles `DEVICE_IDENTIFY` handshake and message broadcasting (matches Go version).
-- **DB Fixes**: Deployed model fixes from previous session — numeric→float8 column conversions, reserved_qty column mapping, sync_history id type (Uuid→String), stock_picking_delivery.label_data field.
-- **Config**: Added `mesh_id` = sha256(SYNC_NETWORK_KEY)[:16] and `base_url` fields.
-- **mesh_node model**: New `mesh_nodes` table + Sea-ORM model for storing paired nodes.
-- **RelayClient**: Full rewrite with `mesh_id` in all relay API calls — `send_heartbeat()`, `get_mesh_status()`, `resolve_node()`. Now matches relay server's actual API (POST /E/register, GET /E/pull/{mesh_id}/{instance_id}, GET /E/mesh/{mesh_id}/status).
-- **Heartbeat task**: Background tokio task every 5 min. Confirmed working: `Heartbeat OK: [582f3791c91bfc91] production_pda_repair -> online`.
-- **Mesh handlers**: `GET /mesh/nodes` queries mesh_nodes table, `GET /mesh/relay-status` queries relay live, `GET /mesh/status` returns instance identity with mesh_id.
-- **Pairing**: Added `POST /api/pairing/approve` (saves remote as mesh_node) and `POST /api/pairing/finalize` (client saves host as mesh_node) endpoints.
-- **Verified on production**: All pages working (Dashboard, Inventory, Warehouse, Shipping, RMA, Printing, Devices, Users), WS connected, heartbeat active, zero errors.
+- **WebSocket**: `/E/ws` handler with tokio broadcast channel, `DEVICE_IDENTIFY` handshake.
+- **DB Fixes**: numeric->float8, sync_history id type, stock_picking_delivery.label_data.
+- **Config**: `mesh_id` = sha256(SYNC_NETWORK_KEY)[:16], `base_url` field.
+- **mesh_node model**: `mesh_nodes` table + Sea-ORM model.
+- **RelayClient**: rewrite with mesh_id in all relay calls.
+- **Heartbeat**: background task every 5 min. Verified on production.
+- **Pairing endpoints**: `POST /api/pairing/approve` and `/api/pairing/finalize`.
 
 ## 2026-02-15 — Session: Frontend + Sync + Setup Account
 - type: fix+feat
 - scope: frontend, sync, auth
-- **Fixes**: DB type mismatches (numeric→float8, timestamp→timestamptz), removed non-existent columns from picking/move_line models, added missing endpoints (mesh/nodes, odoo/pickings), error logging
-- **Features**: Merkle Tree sync, Conflict Resolver (VC→Priority→LWW), auto-created setup account with random password on first run
-- **Server**: RUST_LOG=info, column type conversions, user d.suro@inbody.com
-- **Verified**: Dashboard ✅, Inventory ✅, Warehouse ✅, Shipping ✅
+- **Fixes**: DB type mismatches (numeric->float8, timestamp->timestamptz), removed non-existent columns, added missing endpoints, error logging.
+- **Features**: Merkle Tree sync, Conflict Resolver (VC>Priority>LWW), setup account with random password.
 
 ## 2026-02-15 — Phase 10: SPA Static File Server
 - type: feat
 - scope: frontend
-- Updated `web.rs` with `/E/` prefix stripping, MIME resolution, immutable caching for hashed assets, SPA fallback
-- Created `IMPLEMENTATION_SUMMARY.md` documenting full architecture
-- Updated all `.eck/` stub files with real project content
+- rust-embed static server with /E/ prefix, immutable caching, SPA fallback.
 
-## 2026-02-15 — Phase 9.3: Workflows and Endpoints
+## 2026-02-15 — Phase 9: RMA, Repair & Print
 - type: feat
-- scope: workflows
-- Added `RepairService` for intake_save processing and ProductAlias linking
-- Added `/api/repair/event` handler with inventory reconciliation (PDA as source of truth)
-- Added `/api/inventory/discrepancies` endpoints with stats aggregation
-- Added `/E/rma` CRUD endpoints for unified orders table
-
-## 2026-02-15 — Phase 9.2: Sea-ORM Models
-- type: feat
-- scope: models
-- Added `Order` model (RMA + repair via `order_type` field)
-- Added `DeviceIntake` for Android PDA intake flow
-- Added `InventoryDiscrepancy` for QC count mismatches
-- Added `Document` for generic workflow logs
-
-## 2026-02-15 — Phase 9.1: PDF Label Generation
-- type: feat
-- scope: print
-- Added `printpdf`, `qrcode`, `crc32fast` dependencies
-- Ported AES-192-GCM encryption with custom Base32 encoding from Go
-- Ported label generator with QR puzzle layout (3 QR codes + checksum + serial)
-- Created `POST /api/print/labels` endpoint
+- scope: workflows, models, print
+- PDF label generation, Sea-ORM models (Order, DeviceIntake, InventoryDiscrepancy, Document), RepairService, RMA CRUD.
 
 ## 2026-02-14 — Phases 1-8
 - type: feat
 - scope: project
-- Initial project scaffold through delivery provider integration
-- Core: auth, warehouse, scan, sync, AI, file store, picking, delivery
+- Initial scaffold through delivery provider integration.

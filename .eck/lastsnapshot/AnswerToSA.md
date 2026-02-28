@@ -1,42 +1,40 @@
-# Session: Fix Mesh Pairing — base_url, identity, dashboard UI
+# Session: Relay Pairing Fix + Three-State Health Check (2026-02-28)
 
 ## What was done
 
-### 1. Fixed pairing: host sends real base_url (not relay URL)
-- `PairingApproval` now includes `host_base_url` and `host_name` fields
-- `finalize_pairing()` saves the host's actual `base_url` (e.g. `https://pda.repair/E`) instead of `sync_relay_url`
-- Client now correctly stores host's direct address for future direct sync
+### 1. Fixed relay channel mismatch in pairing (commit d4958fe)
+- **Bug**: `push_packet()` used server's real `mesh_id` but `pull_packets_for()` used `routing_id` as mesh_id — packets never found
+- **Fix**: Added `push_packet_to_channel()` to `RelayClient` — uses `channel_id` as both mesh_id and target_id
+- Updated all 3 push calls in `PairingService` (offer, response, approval) to use the new method
+- **Verified**: Full pairing flow tested via Chrome — production created code 927-222, local entered it, approval modal appeared on production, both sides saved each other
 
-### 2. Fixed pairing: client sends its base_url to host
-- `PairingResponse` now includes `base_url` field
-- `PairingSession` stores `remote_base_url` from the client's response
-- `approve_pairing()` saves the client's `base_url` in `mesh_nodes` (was empty string)
-- Both sides now have each other's direct URLs after pairing
+### 2. Three-state peer health check (commit 70218f8)
+- **Was**: Binary online/offline, 60s interval, skipped peers without `base_url` (NAT peers always red)
+- **Now**: Three statuses with smart fallback:
+  - `active` (green) — direct HTTP ping OK, or relay says online for NAT peers
+  - `degraded` (yellow) — direct ping just failed, waiting 5 min grace period before asking relay
+  - `offline` (red) — both direct ping and relay (9eck.com) confirm down
+- Health check interval: 30s (was 60s)
+- Relay is only queried when needed (NAT peers or degraded > 5 min) — no unnecessary relay traffic
+- NAT peers (no `base_url`): checked via relay `GET /E/mesh/{mesh_id}/status`
 
-### 3. Fixed pairing: human-readable instance_name instead of UUID
-- Added `instance_name` to `Config` — derived from `INSTANCE_NAME` env var, or `BASE_URL` hostname, or first 8 chars of UUID
-- Added `derive_hostname()` helper in `config.rs` for URL parsing without external crate
-- `make_pairing_service()` now passes `instance_name` and `base_url` from config
-- `PairingService` constructor takes `base_url` parameter and uses it in all exchanges
+### 3. Frontend three-color status
+- Devices page table: green dot "Online" / yellow dot "Unstable" / red dot "Offline"
+- Sidebar `MeshStatus.svelte`: green/yellow/red node backgrounds and status dots
+- API `GET /mesh/nodes` now returns `status` field ("active"/"degraded"/"offline") alongside `is_online` boolean
 
-### 4. Added server identity display to dashboard
-- `GET /mesh/status` now returns `base_url` and `instance_name` in addition to `instance_id`, `mesh_id`, `role`
-- **Sidebar (MeshStatus.svelte)**: shows "This Server" with name + online status, then peers below. Tooltip shows full UUID.
-- **Devices page (Mesh Servers tab)**: identity card at top showing Name, Instance ID, Mesh ID, Base URL
+## Verified behavior
+- Local → pda.repair: `status: "active"` (direct HTTP ping OK)
+- Production → f4356a29 (NAT, no base_url): `status: "active"` (relay confirms online)
+- Both servers deployed and running
 
 ## Key files changed
-
 | File | Summary |
 |------|---------|
-| `src/config.rs` | Added `instance_name` field, `derive_hostname()` helper |
-| `src/db.rs` | Added `remote_base_url` to `PairingSession` |
-| `src/services/pairing.rs` | Added `base_url` to `PairingService`, `PairingResponse`, `PairingApproval` |
-| `src/handlers/pairing.rs` | Fixed `make_pairing_service()`, `approve_pairing()`, `finalize_pairing()` |
-| `src/handlers/mesh.rs` | Extended `MeshStatus` with `base_url`, `instance_name` |
-| `web/src/lib/components/MeshStatus.svelte` | Shows self identity + peers |
-| `web/src/routes/dashboard/devices/+page.svelte` | Added identity card to Mesh Servers tab |
-
-## Current state
-- Both frontend and backend compile successfully
-- Old pairing data in `mesh_nodes` tables may need cleanup (old entries had wrong base_url/empty base_url)
-- New pairings will correctly exchange base_url, instance_name, and store them in mesh_nodes
+| `src/sync/relay_client.rs` | `push_packet_to_channel()` — pairing-specific push with channel_id routing |
+| `src/services/pairing.rs` | All 3 push calls switched to `push_packet_to_channel()` |
+| `src/main.rs` | Rewritten health check: 30s interval, three-state logic, relay fallback |
+| `src/handlers/mesh.rs` | `NodeInfo.status` field, removed time-based `is_online` calc |
+| `src/models/mesh_node.rs` | Comment update: status = "active"/"degraded"/"offline" |
+| `web/src/lib/components/MeshStatus.svelte` | Yellow degraded styling in sidebar |
+| `web/src/routes/dashboard/devices/+page.svelte` | Yellow "Unstable" in table + CSS |

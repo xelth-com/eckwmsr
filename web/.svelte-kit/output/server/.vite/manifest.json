@@ -235,7 +235,7 @@
       "_server.js"
     ],
     "css": [
-      "i/immutable/assets/_layout.8bIskc4n.css"
+      "i/immutable/assets/_layout.BKRqq2FD.css"
     ]
   },
   "src/routes/dashboard/+page.svelte": {
@@ -266,7 +266,7 @@
       "_toastStore.js"
     ],
     "css": [
-      "i/immutable/assets/_page.BMavTTup.css"
+      "i/immutable/assets/_page.BiiXNOfN.css"
     ]
   },
   "src/routes/dashboard/items/+page.svelte": {
