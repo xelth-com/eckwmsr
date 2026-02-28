@@ -114,7 +114,7 @@ impl PairingService {
 
         // Push to relay: target_instance_id = routing_id (the "channel")
         self.relay
-            .push_packet(&routing_id, &packet, Some(PAIRING_TTL_SECONDS))
+            .push_packet_to_channel(&routing_id, &packet, Some(PAIRING_TTL_SECONDS))
             .await
             .map_err(|e| anyhow!("Failed to push offer to relay: {}", e))?;
 
@@ -198,7 +198,7 @@ impl PairingService {
             .map_err(|e| anyhow!("Failed to encrypt response: {}", e))?;
 
         self.relay
-            .push_packet(&resp_routing_id, &packet, Some(PAIRING_TTL_SECONDS))
+            .push_packet_to_channel(&resp_routing_id, &packet, Some(PAIRING_TTL_SECONDS))
             .await
             .map_err(|e| anyhow!("Failed to push response to relay: {}", e))?;
 
@@ -270,7 +270,7 @@ impl PairingService {
             .map_err(|e| anyhow!("Failed to encrypt approval: {}", e))?;
 
         self.relay
-            .push_packet(&routing_id, &packet, Some(PAIRING_TTL_SECONDS))
+            .push_packet_to_channel(&routing_id, &packet, Some(PAIRING_TTL_SECONDS))
             .await
             .map_err(|e| anyhow!("Failed to push approval to relay: {}", e))?;
 

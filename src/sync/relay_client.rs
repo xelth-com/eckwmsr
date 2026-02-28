@@ -184,6 +184,34 @@ impl RelayClient {
         Ok(push_resp.packet_id)
     }
 
+    /// Pushes a packet to a pairing channel where mesh_id = channel_id = target_id.
+    /// Used by pairing so push and pull use the same routing.
+    pub async fn push_packet_to_channel(
+        &self,
+        channel_id: &str,
+        packet: &EncryptedSyncPacket,
+        ttl_seconds: Option<u64>,
+    ) -> Result<Uuid, RelayError> {
+        let url = format!("{}/E/push", self.relay_url);
+        let packet_bytes = serde_json::to_vec(packet)?;
+
+        let req_body = RelayPushRequest {
+            mesh_id: channel_id.to_string(),
+            target_instance_id: channel_id.to_string(),
+            sender_instance_id: self.instance_id.clone(),
+            payload_cipher: BASE64_STD.encode(&packet_bytes),
+            nonce: BASE64_STD.encode(&packet.nonce),
+            ttl_seconds,
+        };
+
+        let response = self.client.post(&url).json(&req_body).send().await?;
+        if !response.status().is_success() {
+            return Err(RelayError::StatusError(response.status()));
+        }
+        let push_resp: RelayPushResponse = response.json().await?;
+        Ok(push_resp.packet_id)
+    }
+
     /// Pulls pending packets from the relay for this instance.
     pub async fn pull_packets(&self) -> Result<Vec<EncryptedSyncPacket>, RelayError> {
         self.pull_packets_for_target(&self.mesh_id, &self.instance_id)
