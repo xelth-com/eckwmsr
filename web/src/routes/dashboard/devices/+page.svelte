@@ -453,8 +453,8 @@
                         {#each serverNodes as node}
                             <tr>
                                 <td>
-                                    <span class="dot" class:online={node.is_online}></span>
-                                    {node.is_online ? 'Online' : 'Offline'}
+                                    <span class="dot" class:online={node.status === 'active'} class:degraded={node.status === 'degraded'}></span>
+                                    {node.status === 'active' ? 'Online' : node.status === 'degraded' ? 'Unstable' : 'Offline'}
                                 </td>
                                 <td>{node.name}</td>
                                 <td><span class="role-badge {node.role}">{node.role}</span></td>
@@ -517,6 +517,7 @@
 
     .dot { height: 8px; width: 8px; background-color: #dc3545; border-radius: 50%; display: inline-block; margin-right: 6px; }
     .dot.online { background-color: #28a745; box-shadow: 0 0 5px #28a745; }
+    .dot.degraded { background-color: #ffc107; box-shadow: 0 0 5px #ffc107; }
 
     .btn { padding: 0.6rem 1.2rem; border-radius: 6px; border: 1px solid transparent; font-weight: 600; cursor: pointer; transition: all 0.2s; }
     .btn.active { transform: translateY(2px); box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }

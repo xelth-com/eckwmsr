@@ -107,10 +107,10 @@
             </div>
         {:else}
             {#each meshNodes as node}
-                <div class="mesh-node" class:online={node.is_online} class:offline={!node.is_online}>
+                <div class="mesh-node" class:online={node.status === 'active'} class:degraded={node.status === 'degraded'} class:offline={node.status === 'offline'}>
                     <span class="node-icon">{getNodeIcon(node.role)}</span>
                     <span class="node-label">{getNodeLabel(node)}</span>
-                    <span class="node-status" class:online={node.is_online}></span>
+                    <span class="node-status" class:online={node.status === 'active'} class:degraded={node.status === 'degraded'}></span>
                 </div>
             {/each}
         {/if}
@@ -150,6 +150,11 @@
         border-color: rgba(40, 167, 69, 0.3);
     }
 
+    .mesh-node.degraded {
+        background: rgba(255, 193, 7, 0.1);
+        border-color: rgba(255, 193, 7, 0.3);
+    }
+
     .mesh-node.offline {
         background: rgba(220, 53, 69, 0.1);
         border-color: rgba(220, 53, 69, 0.3);
@@ -179,6 +184,10 @@
         color: #28a745;
     }
 
+    .mesh-node.degraded .node-label {
+        color: #ffc107;
+    }
+
     .mesh-node.offline .node-label {
         color: #dc3545;
     }
@@ -193,5 +202,10 @@
     .node-status.online {
         background: #28a745;
         box-shadow: 0 0 6px rgba(40, 167, 69, 0.6);
+    }
+
+    .node-status.degraded {
+        background: #ffc107;
+        box-shadow: 0 0 6px rgba(255, 193, 7, 0.6);
     }
 </style>

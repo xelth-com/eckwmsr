@@ -9,7 +9,7 @@ pub struct Model {
     pub name: String,
     pub base_url: String,
     pub role: String,   // "master", "peer", "edge", "pda"
-    pub status: String, // "active", "offline"
+    pub status: String, // "active", "degraded", "offline"
     pub last_seen: DateTimeUtc,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,

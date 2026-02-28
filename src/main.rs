@@ -228,8 +228,10 @@ async fn main() {
     });
     info!("Heartbeat task started (every 5 min), mesh_id: {}", cfg.mesh_id);
 
-    // Peer health check: ping each mesh node every 60s, update last_seen/status.
-    // Asks peer "do you know me?" via ?peer_id= — only marks online if mutual.
+    // Peer health check: every 30s for peers with base_url, relay fallback after 5 min.
+    // Statuses: "active" (green) = direct OK, "degraded" (yellow) = direct failed but relay says online,
+    //           "offline" (red) = both direct and relay say down.
+    // Peers without base_url (behind NAT): always checked via relay.
     {
         let health_state = app_state.clone();
         tokio::spawn(async move {
@@ -238,7 +240,11 @@ async fn main() {
                 .build()
                 .unwrap();
             let my_id = health_state.config.instance_id.clone();
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            let relay_url = health_state.config.sync_relay_url.clone();
+            let mesh_id = health_state.config.mesh_id.clone();
+            // How long to wait before falling back to relay after direct ping fails
+            const DEGRADED_GRACE_SECS: i64 = 300; // 5 minutes
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
             loop {
                 interval.tick().await;
                 use sea_orm::EntityTrait;
@@ -246,35 +252,96 @@ async fn main() {
                     .all(&health_state.db)
                     .await
                     .unwrap_or_default();
-                for node in &nodes {
-                    if node.base_url.is_empty() {
-                        continue;
+
+                // Check if any node needs relay lookup (no base_url, or degraded long enough)
+                let needs_relay = nodes.iter().any(|n| {
+                    if n.base_url.is_empty() { return true; }
+                    // Also need relay if node was degraded for >5 min
+                    if n.status == "degraded" {
+                        let age = (chrono::Utc::now() - n.updated_at).num_seconds();
+                        return age >= DEGRADED_GRACE_SECS;
                     }
-                    // Ask peer: "are you alive AND do you know me?"
-                    let url = format!("{}/mesh/status?peer_id={}", node.base_url, my_id);
-                    let is_mutual = match client.get(&url).send().await {
+                    false
+                });
+
+                // Fetch relay mesh status only when needed (avoid unnecessary calls)
+                let relay_nodes: Vec<serde_json::Value> = if needs_relay {
+                    match client
+                        .get(format!("{}/E/mesh/{}/status", relay_url, mesh_id))
+                        .send().await
+                    {
                         Ok(resp) if resp.status().is_success() => {
-                            // Parse response to check "known" field
-                            resp.json::<serde_json::Value>().await
-                                .map(|v| v.get("known").and_then(|k| k.as_bool()).unwrap_or(false))
-                                .unwrap_or(false)
+                            resp.json::<serde_json::Value>().await.ok()
+                                .and_then(|v| v.get("nodes").cloned())
+                                .and_then(|n| serde_json::from_value(n).ok())
+                                .unwrap_or_default()
                         }
-                        _ => false,
+                        _ => vec![],
+                    }
+                } else {
+                    vec![]
+                };
+
+                let relay_online = |instance_id: &str| -> bool {
+                    relay_nodes.iter().any(|rn| {
+                        rn.get("instance_id").and_then(|id| id.as_str()) == Some(instance_id)
+                            && rn.get("status").and_then(|s| s.as_str()) == Some("online")
+                    })
+                };
+
+                for node in &nodes {
+                    let new_status = if !node.base_url.is_empty() {
+                        // Has base_url — try direct HTTP check first
+                        let url = format!("{}/mesh/status?peer_id={}", node.base_url, my_id);
+                        let direct_ok = match client.get(&url).send().await {
+                            Ok(resp) if resp.status().is_success() => {
+                                resp.json::<serde_json::Value>().await
+                                    .map(|v| v.get("known").and_then(|k| k.as_bool()).unwrap_or(false))
+                                    .unwrap_or(false)
+                            }
+                            _ => false,
+                        };
+
+                        if direct_ok {
+                            "active" // green: direct ping OK
+                        } else if node.status == "active" {
+                            // Just failed — transition to degraded (yellow), start grace period
+                            "degraded"
+                        } else if node.status == "degraded" {
+                            let age = (chrono::Utc::now() - node.updated_at).num_seconds();
+                            if age >= DEGRADED_GRACE_SECS {
+                                // Grace period over — ask relay
+                                if relay_online(&node.instance_id) {
+                                    "degraded" // relay says alive but direct unreachable
+                                } else {
+                                    "offline" // relay also says down → red
+                                }
+                            } else {
+                                "degraded" // still waiting
+                            }
+                        } else {
+                            // Was offline, still offline
+                            if relay_online(&node.instance_id) {
+                                "degraded" // relay says alive, maybe recovering
+                            } else {
+                                "offline"
+                            }
+                        }
+                    } else {
+                        // No base_url (behind NAT) — relay is the only source of truth
+                        if relay_online(&node.instance_id) { "active" } else { "offline" }
                     };
-                    let new_status = if is_mutual { "active" } else { "offline" };
+
                     let mut am: crate::models::mesh_node::ActiveModel = node.clone().into();
-                    if is_mutual {
+                    if new_status == "active" {
                         am.last_seen = sea_orm::Set(chrono::Utc::now());
                     }
-                    am.status = sea_orm::Set(new_status.to_string());
-                    am.updated_at = sea_orm::Set(chrono::Utc::now());
-                    let _ = sea_orm::ActiveModelTrait::update(am, &health_state.db).await;
-                    if !is_mutual && !node.base_url.is_empty() {
-                        tracing::info!(
-                            "Peer {} ({}) is NOT mutual — marking offline",
-                            node.instance_id, node.base_url
-                        );
+                    // Only update updated_at on status transitions (for degraded timer)
+                    if new_status != node.status {
+                        am.updated_at = sea_orm::Set(chrono::Utc::now());
                     }
+                    am.status = sea_orm::Set(new_status.to_string());
+                    let _ = sea_orm::ActiveModelTrait::update(am, &health_state.db).await;
                 }
             }
         });
