@@ -160,6 +160,12 @@
                 RMA Requests
             </a>
             <a
+                href="{base}/dashboard/repairs"
+                class:active={$page.url.pathname.includes("/repairs")}
+            >
+                Repairs
+            </a>
+            <a
                 href="{base}/dashboard/support"
                 class:active={$page.url.pathname.includes("/support")}
             >

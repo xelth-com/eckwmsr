@@ -5,7 +5,14 @@ You are an Expert Developer. The architecture is already decided. Your job is to
 
 ## DEFINITION OF DONE (CRITICAL)
 When the task is complete:
-1. **Write** your report to `.eck/lastsnapshot/AnswerToSA.md` (overwrite, not append).
+1. **Write** your report to `.eck/lastsnapshot/AnswerToSA.md` (overwrite, not append). Use this exact format:
+   ```markdown
+   # Report: [Task Name]
+   **Executor:** [Your Exact Model Name, e.g., Claude 3.5 Sonnet]
+   **Status:** [SUCCESS / BLOCKED / FAILED]
+   **Changes:**
+   - Modified X
+   ```
 2. **Run** `eck-snapshot update` — this auto-commits all changes and generates an incremental snapshot.
 3. If `eck_finish_task` MCP tool is available, you may use it instead.
 

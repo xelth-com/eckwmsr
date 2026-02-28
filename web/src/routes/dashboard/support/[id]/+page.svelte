@@ -114,6 +114,16 @@
         });
         goto(`${base}/dashboard/rma/new?${params}`);
     }
+
+    function createRepair() {
+        const params = new URLSearchParams({
+            ticketId,
+            name:  customer || '',
+            email: customerEmail,
+            issue: summary || subject || '',
+        });
+        goto(`${base}/dashboard/repairs/new?${params}`);
+    }
 </script>
 
 <div class="detail-page">
@@ -145,6 +155,9 @@
                     <button class="rma-btn" on:click={createRMA} disabled={threads.length === 0}>
                         📋 Create RMA
                     </button>
+                    <button class="repair-btn" on:click={createRepair} disabled={threads.length === 0}>
+                        🛠️ Create Repair
+                    </button>
                 </div>
             </div>
             <h1 class="ticket-subject">{subject}</h1>
@@ -162,9 +175,10 @@
                     <div class="summary-error">⚠️ {summaryError}</div>
                 {:else}
                     <div class="summary-text">{summary}</div>
-                    <button class="use-as-issue-btn" on:click={createRMA} title="Open RMA creation pre-filled with this summary">
-                        → Use as issue description in new RMA
-                    </button>
+                    <div class="summary-actions">
+                        <button class="use-as-issue-btn" on:click={createRMA}>→ Use for new RMA</button>
+                        <button class="use-as-issue-btn" on:click={createRepair}>→ Use for new Repair</button>
+                    </div>
                 {/if}
             </div>
         {/if}
@@ -406,6 +420,20 @@
     .rma-btn:hover:not(:disabled) { background: #14532d; }
     .rma-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
+    .repair-btn {
+        background: #1a2a3a;
+        color: #93c5fd;
+        border: 1px solid #3b82f6;
+        border-radius: 6px;
+        padding: 0.4rem 0.9rem;
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    .repair-btn:hover:not(:disabled) { background: #1e3a5f; }
+    .repair-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
     /* AI Summary panel */
     .summary-panel {
         background: #1a1130;
@@ -441,4 +469,5 @@
         text-decoration: underline;
     }
     .use-as-issue-btn:hover { color: #d8b4fe; }
+    .summary-actions { display: flex; gap: 1rem; margin-top: 0.75rem; }
 </style>

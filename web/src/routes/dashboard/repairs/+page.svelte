@@ -4,33 +4,32 @@
     import { goto } from '$app/navigation';
     import { toastStore } from '$lib/stores/toastStore';
 
-    let rmas = [];
+    let orders = [];
     let loading = true;
     let error = null;
 
     onMount(async () => {
-        await loadRMAs();
+        await loadRepairs();
     });
 
-    async function loadRMAs() {
+    async function loadRepairs() {
         try {
-            // Fetch only RMA type orders
-            rmas = await api.get('/rma?type=rma');
+            orders = await api.get('/rma?type=repair');
         } catch (e) {
             console.error(e);
             error = e.message;
-            toastStore.add('Failed to load RMAs', 'error');
+            toastStore.add('Failed to load Repairs', 'error');
         } finally {
             loading = false;
         }
     }
 
-    function openRMA(id) {
-        goto(`/dashboard/rma/${id}`);
+    function openRepair(id) {
+        goto(`/dashboard/repairs/${id}`);
     }
 
     function createNew() {
-        goto('/dashboard/rma/new');
+        goto('/dashboard/repairs/new');
     }
 
     function formatDate(dateStr) {
@@ -41,43 +40,43 @@
 
 <div class="rma-page">
     <header>
-        <h1>RMA Requests</h1>
+        <h1>Repair Orders</h1>
         <div class="actions">
-            <button class="action-btn primary" on:click={createNew}>+ New Request</button>
+            <button class="action-btn primary" on:click={createNew}>+ New Repair</button>
         </div>
     </header>
 
     {#if loading}
-        <div class="loading">Loading requests...</div>
+        <div class="loading">Loading repairs...</div>
     {:else if error}
         <div class="error">{error}</div>
     {:else}
         <div class="table-container">
-            {#if rmas.length === 0}
-                <div class="empty-state">No RMA requests found.</div>
+            {#if orders.length === 0}
+                <div class="empty-state">No repair orders found.</div>
             {/if}
 
             <table class="rma-table">
                 <thead>
                     <tr>
-                        <th>RMA #</th>
+                        <th>Order #</th>
                         <th>Customer</th>
-                        <th>Product SKU</th>
+                        <th>Device / SKU</th>
                         <th>Date</th>
                         <th>Status</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {#each rmas as rma}
+                    {#each orders as order}
                         <!-- svelte-ignore a11y-click-events-have-key-events -->
-                        <tr on:click={() => openRMA(rma.id)}>
-                            <td class="code">{rma.rmaNumber}</td>
-                            <td>{rma.customerName}</td>
-                            <td class="code-sm">{rma.productSku}</td>
-                            <td>{formatDate(rma.createdAt)}</td>
+                        <tr on:click={() => openRepair(order.id)}>
+                            <td class="code">{order.orderNumber}</td>
+                            <td>{order.customerName}</td>
+                            <td class="code-sm">{order.productSku}</td>
+                            <td>{formatDate(order.createdAt)}</td>
                             <td>
-                                <span class="status-badge {rma.status.toLowerCase()}">
-                                    {rma.status}
+                                <span class="status-badge {order.status.toLowerCase()}">
+                                    {order.status}
                                 </span>
                             </td>
                         </tr>
@@ -89,13 +88,7 @@
 </div>
 
 <style>
-    header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 2rem;
-    }
-
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
     h1 { font-size: 1.8rem; color: #fff; margin: 0; }
 
     .action-btn {
@@ -105,7 +98,6 @@
         font-weight: 600;
         cursor: pointer;
     }
-
     .action-btn.primary { background: #4a69bd; color: white; }
 
     .table-container {
@@ -115,11 +107,7 @@
         overflow-x: auto;
     }
 
-    .rma-table {
-        width: 100%;
-        border-collapse: collapse;
-        text-align: left;
-    }
+    .rma-table { width: 100%; border-collapse: collapse; text-align: left; }
 
     .rma-table th {
         padding: 1rem;
@@ -136,18 +124,9 @@
         color: #e0e0e0;
     }
 
-    .rma-table tr {
-        cursor: pointer;
-        transition: background 0.1s;
-    }
-
-    .rma-table tr:hover {
-        background: #252525;
-    }
-
-    .rma-table tr:last-child td {
-        border-bottom: none;
-    }
+    .rma-table tr { cursor: pointer; transition: background 0.1s; }
+    .rma-table tr:hover { background: #252525; }
+    .rma-table tr:last-child td { border-bottom: none; }
 
     .code { font-family: monospace; font-weight: bold; color: #4a69bd; }
     .code-sm { font-family: monospace; font-size: 0.9rem; color: #aaa; }
@@ -159,12 +138,11 @@
         font-weight: 600;
         text-transform: uppercase;
     }
-
-    .status-badge.pending { background: #d35400; color: #fff; }
-    .status-badge.received { background: #f39c12; color: #000; }
+    .status-badge.pending    { background: #d35400; color: #fff; }
+    .status-badge.received   { background: #f39c12; color: #000; }
     .status-badge.processing { background: #3498db; color: #fff; }
-    .status-badge.completed { background: #27ae60; color: #fff; }
-    .status-badge.cancelled { background: #7f8c8d; color: #fff; }
+    .status-badge.completed  { background: #27ae60; color: #fff; }
+    .status-badge.cancelled  { background: #7f8c8d; color: #fff; }
 
     .empty-state { padding: 3rem; text-align: center; color: #666; }
 </style>
