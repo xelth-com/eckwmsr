@@ -38,3 +38,6 @@
 | `src/models/mesh_node.rs` | Comment update: status = "active"/"degraded"/"offline" |
 | `web/src/lib/components/MeshStatus.svelte` | Yellow degraded styling in sidebar |
 | `web/src/routes/dashboard/devices/+page.svelte` | Yellow "Unstable" in table + CSS |
+
+
+[SYSTEM: EMBEDDED]
