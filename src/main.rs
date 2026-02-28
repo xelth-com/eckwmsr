@@ -217,7 +217,8 @@ async fn main() {
     });
     info!("Heartbeat task started (every 5 min), mesh_id: {}", cfg.mesh_id);
 
-    // Peer health check: ping each mesh node every 60s, update last_seen/status
+    // Peer health check: ping each mesh node every 60s, update last_seen/status.
+    // Asks peer "do you know me?" via ?peer_id= — only marks online if mutual.
     {
         let health_state = app_state.clone();
         tokio::spawn(async move {
@@ -225,6 +226,7 @@ async fn main() {
                 .timeout(std::time::Duration::from_secs(5))
                 .build()
                 .unwrap();
+            let my_id = health_state.config.instance_id.clone();
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
             loop {
                 interval.tick().await;
@@ -237,21 +239,36 @@ async fn main() {
                     if node.base_url.is_empty() {
                         continue;
                     }
-                    let url = format!("{}/mesh/status", node.base_url);
-                    let is_alive = client.get(&url).send().await.map(|r| r.status().is_success()).unwrap_or(false);
-                    let new_status = if is_alive { "active" } else { "offline" };
+                    // Ask peer: "are you alive AND do you know me?"
+                    let url = format!("{}/mesh/status?peer_id={}", node.base_url, my_id);
+                    let is_mutual = match client.get(&url).send().await {
+                        Ok(resp) if resp.status().is_success() => {
+                            // Parse response to check "known" field
+                            resp.json::<serde_json::Value>().await
+                                .map(|v| v.get("known").and_then(|k| k.as_bool()).unwrap_or(false))
+                                .unwrap_or(false)
+                        }
+                        _ => false,
+                    };
+                    let new_status = if is_mutual { "active" } else { "offline" };
                     let mut am: crate::models::mesh_node::ActiveModel = node.clone().into();
-                    if is_alive {
+                    if is_mutual {
                         am.last_seen = sea_orm::Set(chrono::Utc::now());
                     }
                     am.status = sea_orm::Set(new_status.to_string());
                     am.updated_at = sea_orm::Set(chrono::Utc::now());
                     let _ = sea_orm::ActiveModelTrait::update(am, &health_state.db).await;
+                    if !is_mutual && !node.base_url.is_empty() {
+                        tracing::info!(
+                            "Peer {} ({}) is NOT mutual — marking offline",
+                            node.instance_id, node.base_url
+                        );
+                    }
                 }
             }
         });
     }
-    info!("Peer health check started (every 60s)");
+    info!("Peer health check started (every 60s, mutual verification)");
 
     // Startup sync: pull users from all known mesh peers (fire-and-forget)
     {

@@ -1,11 +1,11 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Json,
 };
 use chrono::Utc;
 use sea_orm::{EntityTrait, QueryOrder};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::db::AppState;
@@ -25,6 +25,12 @@ pub struct NodeInfo {
     pub last_seen: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct StatusQuery {
+    /// If provided, the server checks if this peer_id exists in its mesh_nodes
+    pub peer_id: Option<String>,
+}
+
 #[derive(Serialize)]
 pub struct MeshStatus {
     pub instance_id: String,
@@ -32,6 +38,9 @@ pub struct MeshStatus {
     pub role: String,
     pub base_url: String,
     pub instance_name: String,
+    /// If peer_id was provided: true = this server knows about that peer
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub known: Option<bool>,
 }
 
 /// GET /mesh/nodes — returns list of locally paired mesh nodes
@@ -80,14 +89,31 @@ pub async fn delete_node(
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
-/// GET /mesh/status — returns this server's identity
-pub async fn get_status(State(state): State<Arc<AppState>>) -> Json<MeshStatus> {
+/// GET /mesh/status — returns this server's identity.
+/// If ?peer_id=XXX is provided, also returns whether this server knows that peer.
+pub async fn get_status(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<StatusQuery>,
+) -> Json<MeshStatus> {
+    let known = if let Some(ref peer_id) = query.peer_id {
+        let found = mesh_node::Entity::find_by_id(peer_id.clone())
+            .one(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+        Some(found)
+    } else {
+        None
+    };
+
     Json(MeshStatus {
         instance_id: state.config.instance_id.clone(),
         mesh_id: state.config.mesh_id.clone(),
         role: "peer".to_string(),
         base_url: state.config.base_url.clone(),
         instance_name: state.config.instance_name.clone(),
+        known,
     })
 }
 
