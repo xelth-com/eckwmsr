@@ -217,6 +217,42 @@ async fn main() {
     });
     info!("Heartbeat task started (every 5 min), mesh_id: {}", cfg.mesh_id);
 
+    // Peer health check: ping each mesh node every 60s, update last_seen/status
+    {
+        let health_state = app_state.clone();
+        tokio::spawn(async move {
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(5))
+                .build()
+                .unwrap();
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                use sea_orm::EntityTrait;
+                let nodes: Vec<crate::models::mesh_node::Model> = crate::models::mesh_node::Entity::find()
+                    .all(&health_state.db)
+                    .await
+                    .unwrap_or_default();
+                for node in &nodes {
+                    if node.base_url.is_empty() {
+                        continue;
+                    }
+                    let url = format!("{}/mesh/status", node.base_url);
+                    let is_alive = client.get(&url).send().await.map(|r| r.status().is_success()).unwrap_or(false);
+                    let new_status = if is_alive { "active" } else { "offline" };
+                    let mut am: crate::models::mesh_node::ActiveModel = node.clone().into();
+                    if is_alive {
+                        am.last_seen = sea_orm::Set(chrono::Utc::now());
+                    }
+                    am.status = sea_orm::Set(new_status.to_string());
+                    am.updated_at = sea_orm::Set(chrono::Utc::now());
+                    let _ = sea_orm::ActiveModelTrait::update(am, &health_state.db).await;
+                }
+            }
+        });
+    }
+    info!("Peer health check started (every 60s)");
+
     // Startup sync: pull users from all known mesh peers (fire-and-forget)
     {
         let startup_sync_state = app_state.clone();

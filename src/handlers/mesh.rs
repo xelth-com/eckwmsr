@@ -3,6 +3,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use chrono::Utc;
 use sea_orm::{EntityTrait, QueryOrder};
 use serde::Serialize;
 use std::sync::Arc;
@@ -11,6 +12,9 @@ use crate::db::AppState;
 use crate::models::mesh_node;
 use crate::sync::relay_client::RelayClient;
 
+/// A node is considered online if last_seen is within this many seconds
+const ONLINE_THRESHOLD_SECS: i64 = 120; // 2 minutes (health check runs every 60s)
+
 #[derive(Serialize)]
 pub struct NodeInfo {
     pub instance_id: String,
@@ -18,6 +22,7 @@ pub struct NodeInfo {
     pub role: String,
     pub base_url: String,
     pub is_online: bool,
+    pub last_seen: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -39,14 +44,19 @@ pub async fn list_nodes(
         .await
         .unwrap_or_default();
 
+    let now = Utc::now();
     let info_list = nodes
         .into_iter()
-        .map(|n| NodeInfo {
-            instance_id: n.instance_id,
-            name: n.name,
-            role: n.role,
-            base_url: n.base_url,
-            is_online: n.status == "active",
+        .map(|n| {
+            let age_secs = (now - n.last_seen).num_seconds();
+            NodeInfo {
+                instance_id: n.instance_id,
+                name: n.name,
+                role: n.role,
+                base_url: n.base_url,
+                is_online: age_secs < ONLINE_THRESHOLD_SECS,
+                last_seen: Some(n.last_seen.to_rfc3339()),
+            }
         })
         .collect();
 
