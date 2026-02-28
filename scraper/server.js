@@ -756,6 +756,10 @@ app.post('/api/zoho/ticket-threads', (req, res) => {
             await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
         }
 
+        // Fetch ticket metadata (subject, contact, status)
+        const ticketRes = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}?include=contacts`);
+        const ticket = ticketRes.error ? null : ticketRes;
+
         const threadsRes = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}/threads`);
         if (threadsRes.error) throw new Error(`Zoho threads API error ${threadsRes.error}: ${threadsRes.body}`);
 
@@ -768,7 +772,7 @@ app.post('/api/zoho/ticket-threads', (req, res) => {
         }
 
         console.log(`[Zoho] Fetched ${threads.length} threads for ticket ${ticketId}`);
-        return { success: true, ticketId, count: threads.length, threads };
+        return { success: true, ticketId, count: threads.length, threads, ticket };
     });
 });
 

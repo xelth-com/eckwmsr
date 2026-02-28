@@ -229,6 +229,7 @@ pub struct ImportThreadRequest {
 pub struct ThreadData {
     pub id: String,
     pub content: Option<String>,
+    pub summary: Option<String>,
     pub from: Option<String>,
     pub direction: Option<String>,
     #[serde(rename = "createdTime")]
@@ -276,7 +277,7 @@ pub async fn import_thread(
             "from":        thread.from,
             "direction":   thread.direction,
             "createdTime": thread.created_time,
-            "content":     thread.content,
+            "content":     thread.content.as_deref().or(thread.summary.as_deref()),
             "ticket":      req.ticket,
         });
 

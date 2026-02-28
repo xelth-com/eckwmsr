@@ -157,9 +157,14 @@
         zohoImportRunning = true;
         zohoImportResult = null;
         try {
+            // Pass ticket metadata from thread fetch or from ticket list
+            const ticket = zohoThreadResult.ticket
+                || zohoResult?.tickets?.find(t => t.id === zohoThreadTicketId)
+                || null;
             const res = await api.post('/api/support/import-thread', {
                 ticketId: zohoThreadTicketId,
                 threads: zohoThreadResult.threads,
+                ticket,
             });
             zohoImportResult = res;
             if (res.imported > 0) {

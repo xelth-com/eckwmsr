@@ -20,7 +20,9 @@ export const nodes = [
 	() => import('./nodes/16'),
 	() => import('./nodes/17'),
 	() => import('./nodes/18'),
-	() => import('./nodes/19')
+	() => import('./nodes/19'),
+	() => import('./nodes/20'),
+	() => import('./nodes/21')
 ];
 
 export const server_loads = [];
@@ -32,17 +34,19 @@ export const dictionary = {
 		"/dashboard/items": [6,[2]],
 		"/dashboard/items/[id]": [7,[2]],
 		"/dashboard/print": [8,[2]],
-		"/dashboard/rma": [9,[2]],
-		"/dashboard/rma/[id]": [10,[2]],
-		"/dashboard/scrapers": [11,[2]],
-		"/dashboard/shipping": [12,[2]],
-		"/dashboard/support": [13,[2]],
-		"/dashboard/support/[id]": [14,[2]],
-		"/dashboard/users": [15,[2]],
-		"/dashboard/warehouse": [16,[2]],
-		"/dashboard/warehouse/blueprint": [17,[2]],
-		"/dashboard/warehouse/[id]": [18,[2]],
-		"/login": [19]
+		"/dashboard/repairs": [9,[2]],
+		"/dashboard/repairs/[id]": [10,[2]],
+		"/dashboard/rma": [11,[2]],
+		"/dashboard/rma/[id]": [12,[2]],
+		"/dashboard/scrapers": [13,[2]],
+		"/dashboard/shipping": [14,[2]],
+		"/dashboard/support": [15,[2]],
+		"/dashboard/support/[id]": [16,[2]],
+		"/dashboard/users": [17,[2]],
+		"/dashboard/warehouse": [18,[2]],
+		"/dashboard/warehouse/blueprint": [19,[2]],
+		"/dashboard/warehouse/[id]": [20,[2]],
+		"/login": [21]
 	};
 
 export const hooks = {

@@ -27,9 +27,10 @@ export {};
 
 declare module "$app/types" {
 	export interface AppTypes {
-		RouteId(): "/" | "/dashboard" | "/dashboard/devices" | "/dashboard/items" | "/dashboard/items/[id]" | "/dashboard/print" | "/dashboard/rma" | "/dashboard/rma/[id]" | "/dashboard/scrapers" | "/dashboard/shipping" | "/dashboard/support" | "/dashboard/support/[id]" | "/dashboard/users" | "/dashboard/warehouse" | "/dashboard/warehouse/blueprint" | "/dashboard/warehouse/[id]" | "/login";
+		RouteId(): "/" | "/dashboard" | "/dashboard/devices" | "/dashboard/items" | "/dashboard/items/[id]" | "/dashboard/print" | "/dashboard/repairs" | "/dashboard/repairs/[id]" | "/dashboard/rma" | "/dashboard/rma/[id]" | "/dashboard/scrapers" | "/dashboard/shipping" | "/dashboard/support" | "/dashboard/support/[id]" | "/dashboard/users" | "/dashboard/warehouse" | "/dashboard/warehouse/blueprint" | "/dashboard/warehouse/[id]" | "/login";
 		RouteParams(): {
 			"/dashboard/items/[id]": { id: string };
+			"/dashboard/repairs/[id]": { id: string };
 			"/dashboard/rma/[id]": { id: string };
 			"/dashboard/support/[id]": { id: string };
 			"/dashboard/warehouse/[id]": { id: string }
@@ -41,6 +42,8 @@ declare module "$app/types" {
 			"/dashboard/items": { id?: string };
 			"/dashboard/items/[id]": { id: string };
 			"/dashboard/print": Record<string, never>;
+			"/dashboard/repairs": { id?: string };
+			"/dashboard/repairs/[id]": { id: string };
 			"/dashboard/rma": { id?: string };
 			"/dashboard/rma/[id]": { id: string };
 			"/dashboard/scrapers": Record<string, never>;
@@ -53,7 +56,7 @@ declare module "$app/types" {
 			"/dashboard/warehouse/[id]": { id: string };
 			"/login": Record<string, never>
 		};
-		Pathname(): "/" | "/dashboard" | "/dashboard/devices" | "/dashboard/items" | `/dashboard/items/${string}` & {} | "/dashboard/print" | "/dashboard/rma" | `/dashboard/rma/${string}` & {} | "/dashboard/scrapers" | "/dashboard/shipping" | "/dashboard/support" | `/dashboard/support/${string}` & {} | "/dashboard/users" | "/dashboard/warehouse" | "/dashboard/warehouse/blueprint" | `/dashboard/warehouse/${string}` & {} | "/login";
+		Pathname(): "/" | "/dashboard" | "/dashboard/devices" | "/dashboard/items" | `/dashboard/items/${string}` & {} | "/dashboard/print" | "/dashboard/repairs" | `/dashboard/repairs/${string}` & {} | "/dashboard/rma" | `/dashboard/rma/${string}` & {} | "/dashboard/scrapers" | "/dashboard/shipping" | "/dashboard/support" | `/dashboard/support/${string}` & {} | "/dashboard/users" | "/dashboard/warehouse" | "/dashboard/warehouse/blueprint" | `/dashboard/warehouse/${string}` & {} | "/login";
 		ResolvedPathname(): `${"" | `/${string}`}${ReturnType<AppTypes['Pathname']>}`;
 		Asset(): string & {};
 	}
