@@ -24,6 +24,7 @@ pub struct PairingSession {
     pub remote_instance_id: String,
     pub remote_instance_name: String,
     pub remote_relay_url: String,
+    pub remote_base_url: String,
     pub created_at: std::time::Instant,
 }
 

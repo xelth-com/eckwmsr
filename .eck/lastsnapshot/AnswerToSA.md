@@ -1,70 +1,42 @@
-# Session Handover — Direct-First Sync + UUID Migration + Device Pairing
+# Session: Fix Mesh Pairing — base_url, identity, dashboard UI
 
-## What was done this session
+## What was done
 
-### 1. Direct-First, Relay-as-Fallback Sync Delivery
-- `push_user_to_peers()` in `src/handlers/admin_users.rs` — 3-tier: Direct HTTP → WS signal → Relay
-- `is_peer_connected()` added to `MeshHub` in `src/handlers/mesh_ws.rs`
-- `is_url_directly_reachable()` helper — checks if URL is not localhost/loopback
+### 1. Fixed pairing: host sends real base_url (not relay URL)
+- `PairingApproval` now includes `host_base_url` and `host_name` fields
+- `finalize_pairing()` saves the host's actual `base_url` (e.g. `https://pda.repair/E`) instead of `sync_relay_url`
+- Client now correctly stores host's direct address for future direct sync
 
-### 2. Fixed MeshClient double /E prefix
-- `src/sync/mesh_client.rs` — URLs were `{base_url}/E/mesh/*` but `base_url` already contains `/E`
-- Changed to `{base_url}/mesh/*`
+### 2. Fixed pairing: client sends its base_url to host
+- `PairingResponse` now includes `base_url` field
+- `PairingSession` stores `remote_base_url` from the client's response
+- `approve_pairing()` saves the client's `base_url` in `mesh_nodes` (was empty string)
+- Both sides now have each other's direct URLs after pairing
 
-### 3. Startup sync + full-pull for users
-- `src/sync/engine.rs` — `full_pull_from_peer()` bypasses merkle tree (empty ids = return all)
-- `src/handlers/mesh_sync.rs` — `pull_handler` now returns all entities when `ids` is empty
-- `src/handlers/sync.rs` — `POST /api/sync/peers` endpoint for manual mesh sync
-- `src/main.rs` — startup task pulls users from all known peers on boot
+### 3. Fixed pairing: human-readable instance_name instead of UUID
+- Added `instance_name` to `Config` — derived from `INSTANCE_NAME` env var, or `BASE_URL` hostname, or first 8 chars of UUID
+- Added `derive_hostname()` helper in `config.rs` for URL parsing without external crate
+- `make_pairing_service()` now passes `instance_name` and `base_url` from config
+- `PairingService` constructor takes `base_url` parameter and uses it in all exchanges
 
-### 4. Device status endpoint
-- `src/handlers/device.rs` — `GET /api/status` for PDA heartbeat (JWT protected)
-- Returns device status, updates `last_seen_at`, includes `enc_key` for active devices
-
-### 5. UUID instance_id auto-generation
-- `src/config.rs` — `ensure_uuid_instance_id()` generates UUID v4 and **writes it back to .env**
-- `src/utils/identity.rs` — updates `server_identity.json` when instance_id changes
-- Old string IDs (`rust_dev_local`, `production_pda_repair`) replaced with real UUIDs
-
-## Current state
-
-### Servers
-- **Local** (`localhost:3210`): running, UUID `f4356a29-1935-4d13-bdb9-39571508e8a8`
-- **Production** (`pda.repair`): running, UUID `e3f6a705-751b-4846-bed3-a2d399290867`
-- Both deployed with latest code
-
-### Device
-- **Ranger2** (`7079f94ca9373a43`) registered on local server as `active`
-- Home instance = local UUID
-- PDA connected but user reports it doesn't show as connected on server side
-
-### Database (local)
-- `mesh_nodes`: has old entry `production_pda_repair` (string ID, not UUID) — needs cleanup
-- `registered_devices`: Ranger2 is active, last_seen 04:24
-- Embedded PG on port 5433: running (started manually via `pg_ctl`)
-- `.env` has `DATABASE_URL=postgres://eckwms@localhost:5433/eckwms`
-
-### Database (production)
-- `mesh_nodes`: empty (cleared during migration)
-- `registered_devices`: empty
-- User `dmytro` exists in `user_auths`
-
-## Known issues to investigate
-1. **PDA says connected but server doesn't show it** — device IS in DB as active. Problem may be in dashboard UI not showing devices, or WebSocket `/ws` connection not establishing
-2. **Old mesh_node entry** on local still has `production_pda_repair` (string) — should be updated to UUID or deleted
-3. **Embedded PG zombie processes** on Windows — 8 postgres.exe processes from old sessions can't be killed from current session. Started PG manually with `pg_ctl`. May need Windows restart to clean up.
-4. **TECH_DEBT items 10-13** in `.eck/TECH_DEBT.md` — merkle checksums for users, outbound WS client, periodic sync, base_url coupling
+### 4. Added server identity display to dashboard
+- `GET /mesh/status` now returns `base_url` and `instance_name` in addition to `instance_id`, `mesh_id`, `role`
+- **Sidebar (MeshStatus.svelte)**: shows "This Server" with name + online status, then peers below. Tooltip shows full UUID.
+- **Devices page (Mesh Servers tab)**: identity card at top showing Name, Instance ID, Mesh ID, Base URL
 
 ## Key files changed
+
 | File | Summary |
 |------|---------|
-| `src/config.rs` | UUID auto-generation + .env persistence |
-| `src/utils/identity.rs` | Auto-update identity when instance_id changes |
-| `src/handlers/admin_users.rs` | 3-tier push (direct → WS → relay) |
-| `src/handlers/mesh_ws.rs` | `is_peer_connected()` |
-| `src/handlers/mesh_sync.rs` | Empty ids = return all entities |
-| `src/handlers/sync.rs` | `POST /api/sync/peers` |
-| `src/handlers/device.rs` | `GET /api/status` |
-| `src/sync/engine.rs` | `full_pull_from_peer()` |
-| `src/sync/mesh_client.rs` | Fixed double /E prefix |
-| `src/main.rs` | Startup sync task, `/api/sync/peers` route, `/api/status` route |
+| `src/config.rs` | Added `instance_name` field, `derive_hostname()` helper |
+| `src/db.rs` | Added `remote_base_url` to `PairingSession` |
+| `src/services/pairing.rs` | Added `base_url` to `PairingService`, `PairingResponse`, `PairingApproval` |
+| `src/handlers/pairing.rs` | Fixed `make_pairing_service()`, `approve_pairing()`, `finalize_pairing()` |
+| `src/handlers/mesh.rs` | Extended `MeshStatus` with `base_url`, `instance_name` |
+| `web/src/lib/components/MeshStatus.svelte` | Shows self identity + peers |
+| `web/src/routes/dashboard/devices/+page.svelte` | Added identity card to Mesh Servers tab |
+
+## Current state
+- Both frontend and backend compile successfully
+- Old pairing data in `mesh_nodes` tables may need cleanup (old entries had wrong base_url/empty base_url)
+- New pairings will correctly exchange base_url, instance_name, and store them in mesh_nodes

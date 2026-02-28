@@ -25,6 +25,8 @@ pub struct MeshStatus {
     pub instance_id: String,
     pub mesh_id: String,
     pub role: String,
+    pub base_url: String,
+    pub instance_name: String,
 }
 
 /// GET /mesh/nodes — returns list of locally paired mesh nodes
@@ -74,6 +76,8 @@ pub async fn get_status(State(state): State<Arc<AppState>>) -> Json<MeshStatus> 
         instance_id: state.config.instance_id.clone(),
         mesh_id: state.config.mesh_id.clone(),
         role: "peer".to_string(),
+        base_url: state.config.base_url.clone(),
+        instance_name: state.config.instance_name.clone(),
     })
 }
 

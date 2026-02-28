@@ -66,8 +66,9 @@ pub struct FinalizeResponse {
 fn make_pairing_service(state: &AppState) -> PairingService {
     PairingService::new(
         state.config.instance_id.clone(),
-        state.config.instance_id.clone(), // instance_name = instance_id for now
+        state.config.instance_name.clone(),
         state.config.sync_relay_url.clone(),
+        state.config.base_url.clone(),
         state.sync_engine.relay_client(),
     )
 }
@@ -141,6 +142,7 @@ pub async fn check_pairing(
                     remote_instance_id: resp.instance_id.clone(),
                     remote_instance_name: resp.instance_name.clone(),
                     remote_relay_url: resp.relay_url,
+                    remote_base_url: resp.base_url,
                     created_at: std::time::Instant::now(),
                 },
             );
@@ -191,11 +193,11 @@ pub async fn approve_pairing(
             )
         })?;
 
-    // 3. Save as Mesh Node
+    // 3. Save as Mesh Node (with client's base_url from pairing exchange)
     let node = mesh_node::ActiveModel {
         instance_id: Set(session.remote_instance_id.clone()),
         name: Set(session.remote_instance_name.clone()),
-        base_url: Set(String::new()),
+        base_url: Set(session.remote_base_url.clone()),
         role: Set("peer".to_string()),
         status: Set("active".to_string()),
         last_seen: Set(Utc::now()),
@@ -245,11 +247,16 @@ pub async fn finalize_pairing(
         }
     };
 
-    // Save Host as Mesh Node
+    // Save Host as Mesh Node (with host's real base_url from approval)
+    let host_name = if approval.host_name.is_empty() {
+        "Host".to_string()
+    } else {
+        approval.host_name.clone()
+    };
     let node = mesh_node::ActiveModel {
         instance_id: Set(approval.host_instance_id.clone()),
-        name: Set("Master Node".to_string()),
-        base_url: Set(state.config.sync_relay_url.clone()),
+        name: Set(host_name),
+        base_url: Set(approval.host_base_url.clone()),
         role: Set("master".to_string()),
         status: Set("active".to_string()),
         last_seen: Set(Utc::now()),
@@ -269,6 +276,6 @@ pub async fn finalize_pairing(
         status: "finalized".to_string(),
         network_key: Some(approval.network_key),
         host_instance_id: Some(approval.host_instance_id),
-        host_base_url: Some(state.config.sync_relay_url.clone()),
+        host_base_url: Some(approval.host_base_url),
     }))
 }

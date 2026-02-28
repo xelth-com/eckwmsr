@@ -3,16 +3,19 @@
     import { base } from '$app/paths';
 
     let meshNodes = [];
+    let selfStatus = null;
     let loading = true;
     let pollInterval;
 
     async function fetchMeshNodes() {
         try {
-            const response = await fetch(`${base}/mesh/nodes`);
-            if (response.ok) {
-                meshNodes = await response.json();
-                loading = false;
-            }
+            const [nodesRes, statusRes] = await Promise.all([
+                fetch(`${base}/mesh/nodes`),
+                fetch(`${base}/mesh/status`)
+            ]);
+            if (nodesRes.ok) meshNodes = await nodesRes.json();
+            if (statusRes.ok) selfStatus = await statusRes.json();
+            loading = false;
         } catch (error) {
             console.error('Failed to fetch mesh nodes:', error);
             loading = false;
@@ -89,19 +92,28 @@
             <span class="node-icon">⏳</span>
             <span class="node-label">Loading...</span>
         </div>
-    {:else if meshNodes.length === 0}
-        <div class="mesh-node offline">
-            <span class="node-icon">⚠️</span>
-            <span class="node-label">No nodes</span>
-        </div>
     {:else}
-        {#each meshNodes as node}
-            <div class="mesh-node" class:online={node.is_online} class:offline={!node.is_online}>
-                <span class="node-icon">{getNodeIcon(node.role)}</span>
-                <span class="node-label">{getNodeLabel(node)}</span>
-                <span class="node-status" class:online={node.is_online}></span>
+        {#if selfStatus}
+            <div class="mesh-node self">
+                <span class="node-icon">🏠</span>
+                <span class="node-label" title="ID: {selfStatus.instance_id}">{selfStatus.instance_name || selfStatus.instance_id.substring(0, 8)}</span>
+                <span class="node-status online"></span>
             </div>
-        {/each}
+        {/if}
+        {#if meshNodes.length === 0}
+            <div class="mesh-node offline">
+                <span class="node-icon">⚠️</span>
+                <span class="node-label">No peers</span>
+            </div>
+        {:else}
+            {#each meshNodes as node}
+                <div class="mesh-node" class:online={node.is_online} class:offline={!node.is_online}>
+                    <span class="node-icon">{getNodeIcon(node.role)}</span>
+                    <span class="node-label">{getNodeLabel(node)}</span>
+                    <span class="node-status" class:online={node.is_online}></span>
+                </div>
+            {/each}
+        {/if}
     {/if}
 </div>
 
@@ -122,6 +134,15 @@
         background: #1a1a1a;
         border: 1px solid #333;
         transition: all 0.2s;
+    }
+
+    .mesh-node.self {
+        background: rgba(74, 105, 189, 0.15);
+        border-color: rgba(74, 105, 189, 0.4);
+    }
+
+    .mesh-node.self .node-label {
+        color: #7b9ff0;
     }
 
     .mesh-node.online {

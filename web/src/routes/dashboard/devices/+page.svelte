@@ -124,12 +124,17 @@
     // --- SERVER PAIRING LOGIC ---
 
     let serverNodes = [];
+    let selfInfo = null;
 
     async function loadServersData() {
         loading = true;
         try {
-            const nodes = await api.get('/mesh/nodes');
+            const [nodes, status] = await Promise.all([
+                api.get('/mesh/nodes'),
+                api.get('/mesh/status')
+            ]);
             serverNodes = nodes || [];
+            selfInfo = status || null;
         } catch (e) {
             toastStore.add('Failed to load nodes', 'error');
         } finally {
@@ -373,6 +378,28 @@
             </div>
         </div>
 
+        {#if selfInfo}
+            <div class="identity-card">
+                <h3>This Server</h3>
+                <div class="identity-row">
+                    <span class="identity-label">Name</span>
+                    <span class="identity-value">{selfInfo.instance_name || '—'}</span>
+                </div>
+                <div class="identity-row">
+                    <span class="identity-label">Instance ID</span>
+                    <span class="identity-value mono">{selfInfo.instance_id}</span>
+                </div>
+                <div class="identity-row">
+                    <span class="identity-label">Mesh ID</span>
+                    <span class="identity-value mono">{selfInfo.mesh_id}</span>
+                </div>
+                <div class="identity-row">
+                    <span class="identity-label">Base URL</span>
+                    <span class="identity-value mono">{selfInfo.base_url || 'not set'}</span>
+                </div>
+            </div>
+        {/if}
+
         {#if pairingStep !== 'idle'}
             <div class="pairing-modal">
                 <div class="modal-content">
@@ -516,4 +543,11 @@
     .modal-actions { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
 
     .empty, .loading { padding: 3rem; text-align: center; color: #666; font-style: italic; }
+
+    .identity-card { background: #1a1f2e; border: 1px solid rgba(74, 105, 189, 0.3); border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; }
+    .identity-card h3 { margin: 0 0 0.8rem 0; color: #7b9ff0; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; }
+    .identity-row { display: flex; gap: 1rem; padding: 4px 0; align-items: baseline; }
+    .identity-label { color: #888; font-size: 0.8rem; min-width: 90px; flex-shrink: 0; }
+    .identity-value { color: #ddd; font-size: 0.85rem; word-break: break-all; }
+    .identity-value.mono { font-family: monospace; color: #aaa; font-size: 0.8rem; }
 </style>

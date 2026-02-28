@@ -27,6 +27,9 @@ pub struct PairingResponse {
     pub instance_id: String,
     pub instance_name: String,
     pub relay_url: String,
+    /// Client's direct URL (e.g. "https://client.example.com/E")
+    #[serde(default)]
+    pub base_url: String,
 }
 
 /// The approval payload containing the network key, sent from Host to Client
@@ -34,12 +37,19 @@ pub struct PairingResponse {
 pub struct PairingApproval {
     pub host_instance_id: String,
     pub network_key: String,
+    /// Host's direct URL (e.g. "https://pda.repair/E")
+    #[serde(default)]
+    pub host_base_url: String,
+    /// Host's human-readable name
+    #[serde(default)]
+    pub host_name: String,
 }
 
 pub struct PairingService {
     instance_id: String,
     instance_name: String,
     relay_url: String,
+    base_url: String,
     relay: RelayClient,
 }
 
@@ -48,12 +58,14 @@ impl PairingService {
         instance_id: String,
         instance_name: String,
         relay_url: String,
+        base_url: String,
         relay: RelayClient,
     ) -> Self {
         Self {
             instance_id,
             instance_name,
             relay_url,
+            base_url,
             relay,
         }
     }
@@ -161,6 +173,7 @@ impl PairingService {
             instance_id: self.instance_id.clone(),
             instance_name: self.instance_name.clone(),
             relay_url: self.relay_url.clone(),
+            base_url: self.base_url.clone(),
         };
 
         let temp_security = SecurityLayer::new(SyncNodeRole::Peer, &hex::encode(&enc_key));
@@ -231,6 +244,8 @@ impl PairingService {
         let approval = PairingApproval {
             host_instance_id: self.instance_id.clone(),
             network_key: network_key.to_string(),
+            host_base_url: self.base_url.clone(),
+            host_name: self.instance_name.clone(),
         };
 
         let temp_security = SecurityLayer::new(SyncNodeRole::Peer, &hex::encode(&enc_key));

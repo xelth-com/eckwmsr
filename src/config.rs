@@ -6,6 +6,8 @@ use std::env;
 pub struct Config {
     pub port: u16,
     pub instance_id: String,
+    /// Human-readable name for this server (derived from BASE_URL or INSTANCE_NAME env)
+    pub instance_name: String,
     pub base_url: String,
     pub database_url: String,
     pub jwt_secret: String,
@@ -41,6 +43,11 @@ pub fn load_config() -> Config {
 
     let base_url = env::var("BASE_URL").unwrap_or_default();
 
+    let instance_name = env::var("INSTANCE_NAME").unwrap_or_else(|_| {
+        // Derive from BASE_URL hostname, or fall back to truncated UUID
+        derive_hostname(&base_url).unwrap_or_else(|| instance_id.chars().take(8).collect())
+    });
+
     let database_url = env::var("DATABASE_URL").unwrap_or_default();
 
     let jwt_secret =
@@ -72,6 +79,7 @@ pub fn load_config() -> Config {
     Config {
         port,
         instance_id,
+        instance_name,
         base_url,
         database_url,
         jwt_secret,
@@ -116,6 +124,24 @@ fn ensure_uuid_instance_id(raw: &str) -> String {
     }
     eprintln!("Generated INSTANCE_ID={} (saved to .env)", id);
     id.to_string()
+}
+
+/// Extract hostname from a URL string (e.g. "https://pda.repair/E" -> "pda.repair")
+fn derive_hostname(url: &str) -> Option<String> {
+    if url.is_empty() {
+        return None;
+    }
+    // Strip scheme
+    let without_scheme = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
+    // Take everything before first / or :
+    let host = without_scheme.split(&['/', ':'][..]).next()?;
+    if host.is_empty() || host == "localhost" {
+        return None;
+    }
+    Some(host.to_string())
 }
 
 /// Compute mesh_id from SYNC_NETWORK_KEY.
