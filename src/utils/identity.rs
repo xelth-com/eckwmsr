@@ -43,7 +43,18 @@ pub fn load_or_generate_identity(instance_id: &str) -> ServerIdentity {
     // Try to load from file
     if identity_file.exists() {
         if let Ok(data) = std::fs::read_to_string(&identity_file) {
-            if let Ok(identity) = serde_json::from_str::<ServerIdentity>(&data) {
+            if let Ok(mut identity) = serde_json::from_str::<ServerIdentity>(&data) {
+                // Update instance_id if it changed (e.g. migrated to UUID)
+                if identity.instance_id != instance_id {
+                    tracing::info!(
+                        "Updating server identity instance_id: {} -> {}",
+                        identity.instance_id, instance_id
+                    );
+                    identity.instance_id = instance_id.to_string();
+                    if let Ok(json) = serde_json::to_string_pretty(&identity) {
+                        let _ = std::fs::write(&identity_file, json);
+                    }
+                }
                 tracing::info!("Loaded server identity from {}", identity_file.display());
                 return identity;
             }

@@ -35,8 +35,9 @@ pub fn load_config() -> Config {
         .parse()
         .unwrap_or(3210);
 
-    let instance_id =
-        env::var("INSTANCE_ID").unwrap_or_else(|_| "rust_dev_node".to_string());
+    let instance_id = ensure_uuid_instance_id(
+        &env::var("INSTANCE_ID").unwrap_or_else(|_| "rust_dev_node".to_string()),
+    );
 
     let base_url = env::var("BASE_URL").unwrap_or_default();
 
@@ -82,6 +83,39 @@ pub fn load_config() -> Config {
         gemini_fallback_model,
         odoo,
     }
+}
+
+/// Ensure instance_id is a valid UUID. If not, generate one and persist it to .env.
+fn ensure_uuid_instance_id(raw: &str) -> String {
+    if uuid::Uuid::parse_str(raw).is_ok() {
+        return raw.to_string();
+    }
+    let id = uuid::Uuid::new_v4();
+    // Persist to .env so the same UUID is used on next startup
+    if let Ok(contents) = std::fs::read_to_string(".env") {
+        let old_line = format!("INSTANCE_ID={}", raw);
+        let new_line = format!("INSTANCE_ID={}", id);
+        let updated = if contents.contains(&old_line) {
+            contents.replace(&old_line, &new_line)
+        } else if contents.contains("INSTANCE_ID=") {
+            // Replace whatever value is there
+            let mut result = String::new();
+            for line in contents.lines() {
+                if line.starts_with("INSTANCE_ID=") {
+                    result.push_str(&new_line);
+                } else {
+                    result.push_str(line);
+                }
+                result.push('\n');
+            }
+            result
+        } else {
+            format!("{}\n{}\n", contents.trim_end(), new_line)
+        };
+        let _ = std::fs::write(".env", updated);
+    }
+    eprintln!("Generated INSTANCE_ID={} (saved to .env)", id);
+    id.to_string()
 }
 
 /// Compute mesh_id from SYNC_NETWORK_KEY.
