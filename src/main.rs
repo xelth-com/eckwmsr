@@ -27,16 +27,27 @@ use crate::services::delivery_dhl::DhlProvider;
 use crate::services::delivery_opal::OpalProvider;
 use crate::services::odoo::OdooClient;
 
+/// Compile-time timestamp (set by build.rs)
+const BUILT_AT: &str = match option_env!("BUILT_AT") {
+    Some(v) => v,
+    None => "unknown",
+};
+
 #[derive(Serialize)]
 struct HealthResponse {
     status: String,
     server: String,
     version: String,
+    built_at: String,
+    started_at: String,
 }
+
+static STARTED_AT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
+    STARTED_AT.get_or_init(|| chrono::Utc::now().to_rfc3339());
 
     let cfg = config::load_config();
     info!("Starting eckWMS Rust Edition (eckwmsr)");
@@ -460,7 +471,9 @@ fn parse_base_url(base_url: &str, default_port: u16) -> (String, u16) {
 async fn health_check() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
-        server: "rust-local".to_string(),
-        version: "0.1.0".to_string(),
+        server: "eckwmsr".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        built_at: BUILT_AT.to_string(),
+        started_at: STARTED_AT.get().cloned().unwrap_or_default(),
     })
 }
