@@ -43,9 +43,23 @@ function _page($$renderer, $$props) {
     } else {
       $$renderer2.push("<!--[!-->");
       $$renderer2.push(`<form class="form-grid svelte-y09o7m">`);
-      if (formData.metadata?.ticketId) {
+      if (formData.metadata?.ticketId || formData.metadata?.trackingNumber) {
         $$renderer2.push("<!--[-->");
-        $$renderer2.push(`<div class="section full linked-banner svelte-y09o7m"><div class="linked-row svelte-y09o7m"><span class="linked-label svelte-y09o7m">🔗 Linked Support Ticket</span> <a class="linked-link svelte-y09o7m"${attr("href", `${stringify(base)}/dashboard/support/${stringify(formData.metadata.ticketId)}`)}>#${escape_html(formData.metadata.ticketId)} → View Ticket</a></div></div>`);
+        $$renderer2.push(`<div class="section full linked-banner svelte-y09o7m"><div class="linked-row svelte-y09o7m">`);
+        if (formData.metadata?.ticketId) {
+          $$renderer2.push("<!--[-->");
+          $$renderer2.push(`<span class="linked-label svelte-y09o7m">Linked Support Ticket</span> <a class="linked-link svelte-y09o7m"${attr("href", `${stringify(base)}/dashboard/support/${stringify(formData.metadata.ticketId)}`)}>#${escape_html(formData.metadata.ticketId)} -> View Ticket</a>`);
+        } else {
+          $$renderer2.push("<!--[!-->");
+        }
+        $$renderer2.push(`<!--]--> `);
+        if (formData.metadata?.trackingNumber) {
+          $$renderer2.push("<!--[-->");
+          $$renderer2.push(`<span class="linked-label svelte-y09o7m" style="margin-left: 1rem;">Linked Shipment</span> <span class="linked-link svelte-y09o7m" style="border-bottom: none; color: #fff; cursor: default;">${escape_html(formData.metadata.trackingNumber)}</span>`);
+        } else {
+          $$renderer2.push("<!--[!-->");
+        }
+        $$renderer2.push(`<!--]--></div></div>`);
       } else {
         $$renderer2.push("<!--[!-->");
       }

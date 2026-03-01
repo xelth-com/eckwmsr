@@ -35,11 +35,18 @@
             // Pre-fill from URL params when coming from a Support ticket
             const params = $page.url.searchParams;
             const linkedTicketId = params.get('ticketId');
+            const linkedTracking = params.get('tracking');
+
             if (linkedTicketId) {
-                formData.metadata = { ticketId: linkedTicketId };
+                formData.metadata = { ...formData.metadata, ticketId: linkedTicketId };
                 formData.customerName     = params.get('name')  || '';
                 formData.customerEmail    = params.get('email') || '';
                 formData.issueDescription = params.get('issue') || '';
+            }
+            if (linkedTracking) {
+                formData.metadata = { ...formData.metadata, trackingNumber: linkedTracking };
+                if (!formData.customerName) formData.customerName = params.get('name') || '';
+                if (!formData.issueDescription) formData.issueDescription = params.get('issue') || '';
             }
         }
     });
@@ -110,13 +117,21 @@
         <div class="loading">Loading...</div>
     {:else}
         <form class="form-grid" on:submit|preventDefault={handleSubmit}>
-            {#if formData.metadata?.ticketId}
+            {#if formData.metadata?.ticketId || formData.metadata?.trackingNumber}
                 <div class="section full linked-banner">
                     <div class="linked-row">
-                        <span class="linked-label">🔗 Linked Support Ticket</span>
-                        <a class="linked-link" href="{base}/dashboard/support/{formData.metadata.ticketId}">
-                            #{formData.metadata.ticketId} → View Ticket
-                        </a>
+                        {#if formData.metadata?.ticketId}
+                            <span class="linked-label">Linked Support Ticket</span>
+                            <a class="linked-link" href="{base}/dashboard/support/{formData.metadata.ticketId}">
+                                #{formData.metadata.ticketId} -> View Ticket
+                            </a>
+                        {/if}
+                        {#if formData.metadata?.trackingNumber}
+                            <span class="linked-label" style="margin-left: 1rem;">Linked Shipment</span>
+                            <span class="linked-link" style="border-bottom: none; color: #fff; cursor: default;">
+                                {formData.metadata.trackingNumber}
+                            </span>
+                        {/if}
                     </div>
                 </div>
             {/if}

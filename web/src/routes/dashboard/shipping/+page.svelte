@@ -2,6 +2,8 @@
     import { onMount } from "svelte";
     import { api } from "$lib/api";
     import { toastStore } from "$lib/stores/toastStore.js";
+    import { goto } from "$app/navigation";
+    import { base } from "$app/paths";
 
     export let data;
 
@@ -128,6 +130,19 @@
         if (!raw) return null;
         try { return JSON.parse(raw); } catch { return null; }
     }
+
+    function createRepairFromShipment(shipment, details) {
+        const tracking = shipment.tracking_number || details?.ocu_number || details?.tracking_number || '';
+        const customer = details?.pickup_name || details?.sender_name || '';
+        const issue = tracking ? `Package received. Tracking: ${tracking}` : 'Package received.';
+
+        const params = new URLSearchParams({
+            tracking,
+            name: customer,
+            issue
+        });
+        goto(`${base}/dashboard/repairs/new?${params}`);
+    }
 </script>
 
 <div class="shipping-page">
@@ -233,7 +248,7 @@
                         </thead>
                         <tbody>
                             {#each shipments as shipment}
-                                {@const details = parseRawResponse(shipment.rawResponse)}
+                                {@const details = parseRawResponse(shipment.raw_response)}
                                 {@const provider = getProvider(details)}
                                 <tr
                                     class="shipment-row"
@@ -247,8 +262,8 @@
                                         <span class="provider-badge" class:opal={provider === "opal"} class:dhl={provider === "dhl"}>
                                             {provider.toUpperCase()}
                                         </span>
-                                        {#if shipment.trackingNumber || details?.ocu_number || details?.tracking_number}
-                                            <span class="tracking-number">{shipment.trackingNumber || details?.ocu_number || details?.tracking_number}</span>
+                                        {#if shipment.tracking_number || details?.ocu_number || details?.tracking_number}
+                                            <span class="tracking-number">{shipment.tracking_number || details?.ocu_number || details?.tracking_number}</span>
                                             {#if details?.hwb_number}<span class="hwb-number">HWB: {details.hwb_number}</span>{/if}
                                         {:else}
                                             <span class="muted">Pending...</span>
@@ -284,9 +299,12 @@
                                         {:else}<span class="muted">-</span>{/if}
                                     </td>
                                     <td on:click|stopPropagation>
-                                        {#if shipment.status === "pending" || shipment.status === "processing"}
-                                            <button class="action-btn cancel-btn" on:click={() => cancelShipment(shipment.picking_id)}>❌ Cancel</button>
-                                        {:else}<span class="muted">-</span>{/if}
+                                        <div class="actions-col">
+                                            {#if shipment.status === "pending" || shipment.status === "processing"}
+                                                <button class="action-btn cancel-btn" on:click={() => cancelShipment(shipment.picking_id)}>Cancel</button>
+                                            {/if}
+                                            <button class="action-btn repair-btn" on:click={() => createRepairFromShipment(shipment, details)}>Repair</button>
+                                        </div>
                                     </td>
                                 </tr>
                                 {#if expandedShipments.has(shipment.id) && details}
@@ -343,6 +361,10 @@
     .ship-btn:disabled { background: #555; cursor: not-allowed; opacity: 0.6; }
     .cancel-btn { background: transparent; border: 1px solid #dc3545; color: #dc3545; }
     .cancel-btn:hover { background: #dc3545; color: white; }
+
+    .actions-col { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .repair-btn { background: transparent; border: 1px solid #3b82f6; color: #93c5fd; }
+    .repair-btn:hover { background: #1e3a5f; color: #fff; }
 
     .tabs { display: flex; gap: 1rem; margin-bottom: 2rem; border-bottom: 2px solid #333; }
     .tab { padding: 0.8rem 1.5rem; border: none; background: transparent; color: #aaa; font-size: 1rem; font-weight: 600; cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.2s; }

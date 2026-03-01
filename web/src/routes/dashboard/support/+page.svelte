@@ -45,6 +45,8 @@
         const s = (status || '').toLowerCase();
         if (s === 'open') return 'open';
         if (s === 'closed') return 'closed';
+        if (s.includes('pending agent')) return 'urgent';
+        if (s.includes('research')) return 'research';
         if (s === 'onhold' || s === 'on hold') return 'onhold';
         return 'other';
     }
@@ -206,5 +208,7 @@
     .status-badge.open    { background: #1a3a1a; color: #4ade80; border: 1px solid #22c55e; }
     .status-badge.closed  { background: #2a2a2a; color: #888;    border: 1px solid #444; }
     .status-badge.onhold  { background: #3a2a0a; color: #fbbf24; border: 1px solid #f59e0b; }
+    .status-badge.urgent  { background: #4a1010; color: #ff6b6b; border: 1px solid #dc3545; }
+    .status-badge.research { background: #1a2a4a; color: #a3bffa; border: 1px solid #4a69bd; }
     .status-badge.other   { background: #1a2a3a; color: #93c5fd; border: 1px solid #3b82f6; }
 </style>

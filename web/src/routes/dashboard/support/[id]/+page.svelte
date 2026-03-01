@@ -107,6 +107,16 @@
         } catch { return str; }
     }
 
+    function statusClass(status) {
+        const s = (status || '').toLowerCase();
+        if (s === 'open') return 'open';
+        if (s === 'closed') return 'closed';
+        if (s.includes('pending agent')) return 'urgent';
+        if (s.includes('research')) return 'research';
+        if (s === 'onhold' || s === 'on hold') return 'onhold';
+        return 'other';
+    }
+
     function directionLabel(dir) {
         if (dir === 'in') return { label: 'Inbound', cls: 'inbound' };
         if (dir === 'out') return { label: 'Outbound', cls: 'outbound' };
@@ -221,7 +231,7 @@
             <div class="ticket-meta">
                 <span class="ticket-id-badge">#{ticketNumber}</span>
                 {#if ticketStatus}
-                    <span class="status-chip">{ticketStatus}</span>
+                    <span class="status-chip {statusClass(ticketStatus)}">{ticketStatus}</span>
                 {/if}
                 <div class="header-actions">
                     <button class="copy-ai-btn" on:click={copyForAI} disabled={threads.length === 0} title="Copy cleaned text & prompt to clipboard">
@@ -411,6 +421,8 @@
         padding: 0.15rem 0.6rem;
         text-transform: capitalize;
     }
+    .status-chip.urgent { background: #4a1010; color: #ff6b6b; border-color: #dc3545; }
+    .status-chip.research { background: #1a2a4a; color: #a3bffa; border-color: #4a69bd; }
     .ticket-subject { font-size: 1.4rem; color: #fff; margin: 0 0 1rem 0; line-height: 1.3; }
 
     .ticket-customer-box {
