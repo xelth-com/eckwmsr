@@ -13,6 +13,8 @@
     // ── Scraper Admin state ──────────────────────────────────────────────────
     let scraperStatus = null;
     let scraperOnline = null;
+    let scraperStarting = false;
+    let scraperStartError = null;
 
     let opalDebug = false;
     let opalLimit = 10;
@@ -81,6 +83,65 @@
         } catch {
             scraperOnline = false;
             scraperStatus = null;
+        }
+    }
+
+    async function startScraper() {
+        scraperStarting = true;
+        scraperStartError = null;
+        try {
+            const res = await api.post('/api/scraper/start', {});
+            if (res.success) {
+                toastStore.add(res.message, 'success');
+                // Poll until scraper is reachable
+                for (let i = 0; i < 10; i++) {
+                    await new Promise(r => setTimeout(r, 2000));
+                    try {
+                        scraperStatus = await api.get('/S/debug');
+                        scraperOnline = true;
+                        scraperStarting = false;
+                        return;
+                    } catch {}
+                }
+                scraperStartError = 'Process started but scraper did not become reachable within 20s. Check server logs.';
+                scraperOnline = false;
+            } else {
+                scraperStartError = res.error || 'Unknown error';
+            }
+        } catch (e) {
+            scraperStartError = e.message || 'Failed to call start endpoint';
+        } finally {
+            scraperStarting = false;
+        }
+    }
+
+    async function copyStartError() {
+        const txt = `# eckWMS Scraper Start Error
+You are a technical assistant for eckWMS (Rust warehouse management system).
+The user tried to start the Playwright scraper from the admin UI.
+
+## System
+- eckWMS: Rust (axum) + SvelteKit + PostgreSQL on port 3210
+- Scraper: Node.js + Playwright, expected on port 3211
+- Start: node scraper/server.js (from project root)
+- Scraper waits for main server /E/health before listening
+
+## Error
+${scraperStartError}
+
+## Possible causes
+- Node.js not in PATH
+- scraper/server.js not found (wrong working directory)
+- Port 3211 already in use
+- Main server /E/health not responding (scraper exits after 60s)
+- Missing deps (cd scraper && npm install)
+
+Analyze and suggest a fix. Be concise.`.trim();
+        try {
+            await navigator.clipboard.writeText(txt);
+            toastStore.add('Error copied for AI analysis', 'success');
+        } catch (err) {
+            toastStore.add('Failed to copy: ' + err.message, 'error');
         }
     }
 
@@ -414,21 +475,40 @@ Analyze this error and suggest a fix. Be concise.
                         class:online={scraperOnline === true}
                         class:offline={scraperOnline === false}
                         class:unknown={scraperOnline === null}
+                        class:starting={scraperStarting}
                     ></span>
                     <span class="status-label">
-                        {#if scraperOnline === true}
+                        {#if scraperStarting}
+                            Starting scraper...
+                        {:else if scraperOnline === true}
                             Playwright Scraper — running on port {scraperStatus?.port ?? 3211}
                         {:else if scraperOnline === false}
-                            Scraper offline — start it: <code>node scraper/server.js</code>
+                            Scraper offline
                         {:else}
                             Scraper status unknown
                         {/if}
                     </span>
                 </div>
-                <button class="refresh-btn small" on:click={loadScraperStatus}>
-                    ↻ Check Status
-                </button>
+                <div class="status-actions">
+                    {#if scraperOnline !== true && !scraperStarting}
+                        <button class="run-btn start-scraper-btn" on:click={startScraper}>
+                            Start Scraper
+                        </button>
+                    {/if}
+                    <button class="refresh-btn small" on:click={loadScraperStatus} disabled={scraperStarting}>
+                        ↻ Check Status
+                    </button>
+                </div>
             </div>
+            {#if scraperStartError}
+                <div class="scraper-start-error">
+                    <div class="error-row">
+                        <span class="error-badge">Failed: {summarizeError(scraperStartError)}</span>
+                        <button class="action-btn copy-btn" on:click={copyStartError}>Copy to AI</button>
+                    </div>
+                    <div class="error-detail">{scraperStartError}</div>
+                </div>
+            {/if}
 
             {#if scraperOnline === true && scraperStatus}
                 <div class="endpoints-hint">
@@ -938,6 +1018,12 @@ Analyze this error and suggest a fix. Be concise.
     .status-dot.offline { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
     .status-dot.unknown { background: #6b7280; }
     .status-label code { background: #2a2a2a; border-radius: 3px; padding: 0.1rem 0.4rem; font-size: 0.8rem; color: #4a69bd; }
+    .status-actions { display: flex; gap: 0.5rem; align-items: center; }
+    .start-scraper-btn { padding: 0.4rem 1rem; font-size: 0.8rem; background: #166534; color: #4ade80; border: 1px solid #22c55e; border-radius: 4px; font-weight: 600; cursor: pointer; }
+    .start-scraper-btn:hover { background: #14532d; }
+    .status-dot.starting { background: #f59e0b; box-shadow: 0 0 6px #f59e0b; animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .scraper-start-error { background: rgba(239,68,68,0.05); border: 1px solid #ef4444; border-radius: 8px; padding: 0.75rem 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
     .refresh-btn.small { padding: 0.4rem 0.8rem; font-size: 0.8rem; }
 
     .endpoints-hint { display: flex; flex-wrap: wrap; gap: 0.5rem; }

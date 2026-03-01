@@ -48,6 +48,11 @@
                 if (!formData.customerName) formData.customerName = params.get('name') || '';
                 if (!formData.issueDescription) formData.issueDescription = params.get('issue') || '';
             }
+
+            const linkedSerial = params.get('serial');
+            const linkedModel = params.get('model');
+            if (linkedSerial) formData.serialNumber = linkedSerial;
+            if (linkedModel) formData.productSku = linkedModel;
         }
     });
 

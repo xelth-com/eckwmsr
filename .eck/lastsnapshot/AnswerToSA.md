@@ -1,11 +1,12 @@
-# Report: Status Colors, Shipping Fix, and Repair Workflow Integration
+# Report: Extract Hardware Details from Tickets + Start Scraper Button
 **Executor:** Claude Opus 4.6
 **Status:** SUCCESS
 **Changes:**
-- Updated `statusClass` in Support list (`+page.svelte`) and detail (`[id]/+page.svelte`) to detect "Pending Agent Answer" (urgent/red) and "Research Period" (research/blue) with matching CSS styles.
-- Fixed snake_case vs camelCase parsing bug in `shipping/+page.svelte`: changed `shipment.rawResponse` to `shipment.raw_response` and `shipment.trackingNumber` to `shipment.tracking_number`. This resolved the "UNKNOWN"/"Pending..." display issue.
-- Added "Repair" button to the Shipments list actions column, routing to `/dashboard/repairs/new` with tracking number, customer name, and issue pre-filled via URL params.
-- Updated `repairs/[id]/+page.svelte` to parse `tracking` URL param, store it in `metadata.trackingNumber`, and display a "Linked Shipment" banner alongside the existing ticket link.
-
-
-[SYSTEM: EMBEDDED]
+- `src/handlers/scraper_proxy.rs`: Added `POST /api/scraper/start` endpoint using `tokio::process::Command` with `PORT=3211` override
+- `src/main.rs`: Added `/scraper/start` route to protected API routes
+- `web/src/routes/dashboard/scrapers/+page.svelte`: "Start Scraper" button (offline only), pulsing yellow dot, error + "Copy to AI"
+- `src/handlers/support.rs`: Fuzzy extraction of Company, Address, Device Model, Serial Number from Zoho customFields. Added to TicketSummary
+- `web/src/routes/dashboard/support/+page.svelte`: Company + Device/SN badge in ticket list
+- `web/src/routes/dashboard/support/[id]/+page.svelte`: Customer Info + Device Info boxes, serial/company in Related Tickets, pass serial/model to forms
+- `web/src/routes/dashboard/repairs/[id]/+page.svelte`: Parse serial/model URL params
+- `web/src/routes/dashboard/rma/[id]/+page.svelte`: Parse serial/model URL params

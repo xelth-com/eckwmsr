@@ -31,6 +31,10 @@ pub struct TicketSummary {
     pub customer: String,
     pub email: String,
     pub phone: String,
+    pub company: String,
+    pub address: String,
+    pub device_model: String,
+    pub serial_number: String,
     pub thread_count: usize,
     pub latest_update: String,
 }
@@ -102,6 +106,36 @@ pub async fn list_tickets(
             let email = contact["email"].as_str().unwrap_or("").to_string();
             let phone = contact["phone"].as_str().unwrap_or("").to_string();
 
+            // Fuzzy extractor for custom fields from web forms
+            let find_val = |keys: &[&str]| -> String {
+                if let Some(cfs) = meta["customFields"].as_object() {
+                    for (k, v) in cfs {
+                        let kl = k.to_lowercase();
+                        if keys.iter().any(|&kw| kl.contains(kw)) {
+                            if let Some(s) = v.as_str() {
+                                if !s.is_empty() { return s.to_string(); }
+                            }
+                        }
+                    }
+                }
+                if let Some(root) = meta.as_object() {
+                    for (k, v) in root {
+                        let kl = k.to_lowercase();
+                        if keys.iter().any(|&kw| kl.contains(kw)) {
+                            if let Some(s) = v.as_str() {
+                                if !s.is_empty() { return s.to_string(); }
+                            }
+                        }
+                    }
+                }
+                String::new()
+            };
+
+            let company = find_val(&["company", "einrichtung"]);
+            let address = find_val(&["address", "adresse"]);
+            let device_model = find_val(&["inbody model", "inbodymodel"]);
+            let serial_number = find_val(&["serial", "seriennummer"]);
+
             let latest_update = latest.payload["createdTime"]
                 .as_str()
                 .unwrap_or("")
@@ -115,6 +149,10 @@ pub async fn list_tickets(
                 customer,
                 email,
                 phone,
+                company,
+                address,
+                device_model,
+                serial_number,
                 thread_count: threads.len(),
                 latest_update,
             }

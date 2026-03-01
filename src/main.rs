@@ -451,6 +451,8 @@ async fn main() {
         // Admin User Management
         .route("/admin/users", get(handlers::admin_users::list_users).post(handlers::admin_users::create_user))
         .route("/admin/users/:id", put(handlers::admin_users::update_user).delete(handlers::admin_users::delete_user))
+        // Scraper management
+        .route("/scraper/start", post(handlers::scraper_proxy::start_scraper))
         // Support API
         .route("/support/tickets", get(handlers::support::list_tickets))
         .route("/support/tickets/:ticket_id/threads", get(handlers::support::get_ticket_threads))

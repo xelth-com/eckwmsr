@@ -12,6 +12,7 @@ function _page($$renderer, $$props) {
     let error = data.error || null;
     let activeTab = "scraper";
     let scraperOnline = null;
+    let scraperStarting = false;
     let opalDebug = false;
     let opalLimit = 10;
     let opalRunning = false;
@@ -34,36 +35,62 @@ function _page($$renderer, $$props) {
       $$renderer2.push(`<div class="scraper-section svelte-1rxsw4v"><div class="scraper-status-bar svelte-1rxsw4v"><div class="status-left svelte-1rxsw4v"><span${attr_class("status-dot svelte-1rxsw4v", void 0, {
         "online": scraperOnline === true,
         "offline": scraperOnline === false,
-        "unknown": scraperOnline === null
+        "unknown": scraperOnline === null,
+        "starting": scraperStarting
       })}></span> <span class="status-label svelte-1rxsw4v">`);
       {
         $$renderer2.push("<!--[!-->");
         $$renderer2.push(`Scraper status unknown`);
       }
-      $$renderer2.push(`<!--]--></span></div> <button class="refresh-btn small svelte-1rxsw4v">↻ Check Status</button></div> `);
+      $$renderer2.push(`<!--]--></span></div> <div class="status-actions svelte-1rxsw4v">`);
+      {
+        $$renderer2.push("<!--[-->");
+        $$renderer2.push(`<button class="run-btn start-scraper-btn svelte-1rxsw4v">Start Scraper</button>`);
+      }
+      $$renderer2.push(`<!--]--> <button class="refresh-btn small svelte-1rxsw4v"${attr("disabled", scraperStarting, true)}>↻ Check Status</button></div></div> `);
       {
         $$renderer2.push("<!--[!-->");
       }
-      $$renderer2.push(`<!--]--> <div class="provider-cards svelte-1rxsw4v"><div class="provider-card opal-card svelte-1rxsw4v"><div class="card-header svelte-1rxsw4v"><span class="card-title svelte-1rxsw4v">🟢 OPAL Kurier</span> <span class="card-hint svelte-1rxsw4v">opal-kurier.de</span></div> <div class="card-controls svelte-1rxsw4v"><label class="control-row svelte-1rxsw4v"><span>Limit</span> `);
+      $$renderer2.push(`<!--]--> `);
+      {
+        $$renderer2.push("<!--[!-->");
+      }
+      $$renderer2.push(`<!--]--> <div class="provider-cards svelte-1rxsw4v"><div class="provider-card opal-card svelte-1rxsw4v"><div class="card-header svelte-1rxsw4v"><span class="card-title svelte-1rxsw4v">🟢 OPAL Kurier</span> <span class="card-hint svelte-1rxsw4v">opal-kurier.de</span></div> <div class="card-controls svelte-1rxsw4v"><label class="control-row svelte-1rxsw4v"><span class="svelte-1rxsw4v">Limit</span> `);
       $$renderer2.select(
         { value: opalLimit, disabled: opalRunning, class: "" },
         ($$renderer3) => {
-          $$renderer3.option({ value: 5 }, ($$renderer4) => {
-            $$renderer4.push(`5`);
-          });
-          $$renderer3.option({ value: 10 }, ($$renderer4) => {
-            $$renderer4.push(`10`);
-          });
-          $$renderer3.option({ value: 25 }, ($$renderer4) => {
-            $$renderer4.push(`25`);
-          });
-          $$renderer3.option({ value: 50 }, ($$renderer4) => {
-            $$renderer4.push(`50`);
-          });
+          $$renderer3.option(
+            { value: 5, class: "" },
+            ($$renderer4) => {
+              $$renderer4.push(`5`);
+            },
+            "svelte-1rxsw4v"
+          );
+          $$renderer3.option(
+            { value: 10, class: "" },
+            ($$renderer4) => {
+              $$renderer4.push(`10`);
+            },
+            "svelte-1rxsw4v"
+          );
+          $$renderer3.option(
+            { value: 25, class: "" },
+            ($$renderer4) => {
+              $$renderer4.push(`25`);
+            },
+            "svelte-1rxsw4v"
+          );
+          $$renderer3.option(
+            { value: 50, class: "" },
+            ($$renderer4) => {
+              $$renderer4.push(`50`);
+            },
+            "svelte-1rxsw4v"
+          );
         },
         "svelte-1rxsw4v"
       );
-      $$renderer2.push(`</label> <label class="toggle-row svelte-1rxsw4v"><input type="checkbox"${attr("checked", opalDebug, true)}${attr("disabled", opalRunning, true)}/> <span${attr_class("toggle-label svelte-1rxsw4v", void 0, { "debug-on": opalDebug })}>${escape_html("Headless")}</span></label></div> `);
+      $$renderer2.push(`</label> <label class="toggle-row svelte-1rxsw4v"><input type="checkbox"${attr("checked", opalDebug, true)}${attr("disabled", opalRunning, true)} class="svelte-1rxsw4v"/> <span${attr_class("toggle-label svelte-1rxsw4v", void 0, { "debug-on": opalDebug })}>${escape_html("Headless")}</span></label></div> `);
       {
         $$renderer2.push("<!--[!-->");
       }
@@ -76,26 +103,42 @@ function _page($$renderer, $$props) {
       {
         $$renderer2.push("<!--[!-->");
       }
-      $$renderer2.push(`<!--]--></div> <div class="provider-card dhl-card svelte-1rxsw4v"><div class="card-header svelte-1rxsw4v"><span class="card-title svelte-1rxsw4v">🟡 DHL</span> <span class="card-hint svelte-1rxsw4v">geschaeftskunden.dhl.de</span></div> <div class="card-controls svelte-1rxsw4v"><label class="control-row svelte-1rxsw4v"><span>Limit</span> `);
+      $$renderer2.push(`<!--]--></div> <div class="provider-card dhl-card svelte-1rxsw4v"><div class="card-header svelte-1rxsw4v"><span class="card-title svelte-1rxsw4v">🟡 DHL</span> <span class="card-hint svelte-1rxsw4v">geschaeftskunden.dhl.de</span></div> <div class="card-controls svelte-1rxsw4v"><label class="control-row svelte-1rxsw4v"><span class="svelte-1rxsw4v">Limit</span> `);
       $$renderer2.select(
         { value: dhlLimit, disabled: dhlRunning, class: "" },
         ($$renderer3) => {
-          $$renderer3.option({ value: 5 }, ($$renderer4) => {
-            $$renderer4.push(`5`);
-          });
-          $$renderer3.option({ value: 10 }, ($$renderer4) => {
-            $$renderer4.push(`10`);
-          });
-          $$renderer3.option({ value: 25 }, ($$renderer4) => {
-            $$renderer4.push(`25`);
-          });
-          $$renderer3.option({ value: 50 }, ($$renderer4) => {
-            $$renderer4.push(`50`);
-          });
+          $$renderer3.option(
+            { value: 5, class: "" },
+            ($$renderer4) => {
+              $$renderer4.push(`5`);
+            },
+            "svelte-1rxsw4v"
+          );
+          $$renderer3.option(
+            { value: 10, class: "" },
+            ($$renderer4) => {
+              $$renderer4.push(`10`);
+            },
+            "svelte-1rxsw4v"
+          );
+          $$renderer3.option(
+            { value: 25, class: "" },
+            ($$renderer4) => {
+              $$renderer4.push(`25`);
+            },
+            "svelte-1rxsw4v"
+          );
+          $$renderer3.option(
+            { value: 50, class: "" },
+            ($$renderer4) => {
+              $$renderer4.push(`50`);
+            },
+            "svelte-1rxsw4v"
+          );
         },
         "svelte-1rxsw4v"
       );
-      $$renderer2.push(`</label> <label class="toggle-row svelte-1rxsw4v"><input type="checkbox"${attr("checked", dhlDebug, true)}${attr("disabled", dhlRunning, true)}/> <span${attr_class("toggle-label svelte-1rxsw4v", void 0, { "debug-on": dhlDebug })}>${escape_html("Headless")}</span></label></div> `);
+      $$renderer2.push(`</label> <label class="toggle-row svelte-1rxsw4v"><input type="checkbox"${attr("checked", dhlDebug, true)}${attr("disabled", dhlRunning, true)} class="svelte-1rxsw4v"/> <span${attr_class("toggle-label svelte-1rxsw4v", void 0, { "debug-on": dhlDebug })}>${escape_html("Headless")}</span></label></div> `);
       {
         $$renderer2.push("<!--[!-->");
       }
@@ -108,7 +151,7 @@ function _page($$renderer, $$props) {
       {
         $$renderer2.push("<!--[!-->");
       }
-      $$renderer2.push(`<!--]--></div> <div class="provider-card exact-card svelte-1rxsw4v"><div class="card-header svelte-1rxsw4v"><span class="card-title svelte-1rxsw4v">🔵 Exact Online</span> <span class="card-hint svelte-1rxsw4v">start.exactonline.de</span></div> <div class="stub-warning svelte-1rxsw4v">⚠️ Stub — 2FA not implemented yet</div> <div class="card-controls svelte-1rxsw4v"><label class="toggle-row svelte-1rxsw4v"><input type="checkbox"${attr("checked", exactDebug, true)}${attr("disabled", exactRunning, true)}/> <span${attr_class("toggle-label svelte-1rxsw4v", void 0, { "debug-on": exactDebug })}>${escape_html("Headless")}</span></label></div> `);
+      $$renderer2.push(`<!--]--></div> <div class="provider-card exact-card svelte-1rxsw4v"><div class="card-header svelte-1rxsw4v"><span class="card-title svelte-1rxsw4v">🔵 Exact Online</span> <span class="card-hint svelte-1rxsw4v">start.exactonline.de</span></div> <div class="stub-warning svelte-1rxsw4v">⚠️ Stub — 2FA not implemented yet</div> <div class="card-controls svelte-1rxsw4v"><label class="toggle-row svelte-1rxsw4v"><input type="checkbox"${attr("checked", exactDebug, true)}${attr("disabled", exactRunning, true)} class="svelte-1rxsw4v"/> <span${attr_class("toggle-label svelte-1rxsw4v", void 0, { "debug-on": exactDebug })}>${escape_html("Headless")}</span></label></div> `);
       {
         $$renderer2.push("<!--[!-->");
       }
@@ -121,29 +164,49 @@ function _page($$renderer, $$props) {
       {
         $$renderer2.push("<!--[!-->");
       }
-      $$renderer2.push(`<!--]--></div> <div class="provider-card zoho-card svelte-1rxsw4v"><div class="card-header svelte-1rxsw4v"><span class="card-title svelte-1rxsw4v">🟣 Zoho Desk</span> <span class="card-hint svelte-1rxsw4v">desk.inbodysupport.eu</span></div> <div class="card-controls svelte-1rxsw4v"><label class="control-row svelte-1rxsw4v"><span>Limit</span> `);
+      $$renderer2.push(`<!--]--></div> <div class="provider-card zoho-card svelte-1rxsw4v"><div class="card-header svelte-1rxsw4v"><span class="card-title svelte-1rxsw4v">🟣 Zoho Desk</span> <span class="card-hint svelte-1rxsw4v">desk.inbodysupport.eu</span></div> <div class="card-controls svelte-1rxsw4v"><label class="control-row svelte-1rxsw4v"><span class="svelte-1rxsw4v">Limit</span> `);
       $$renderer2.select(
         { value: zohoLimit, disabled: zohoRunning, class: "" },
         ($$renderer3) => {
-          $$renderer3.option({ value: 10 }, ($$renderer4) => {
-            $$renderer4.push(`10`);
-          });
-          $$renderer3.option({ value: 50 }, ($$renderer4) => {
-            $$renderer4.push(`50`);
-          });
-          $$renderer3.option({ value: 100 }, ($$renderer4) => {
-            $$renderer4.push(`100`);
-          });
-          $$renderer3.option({ value: 500 }, ($$renderer4) => {
-            $$renderer4.push(`500`);
-          });
-          $$renderer3.option({ value: 1e3 }, ($$renderer4) => {
-            $$renderer4.push(`1000`);
-          });
+          $$renderer3.option(
+            { value: 10, class: "" },
+            ($$renderer4) => {
+              $$renderer4.push(`10`);
+            },
+            "svelte-1rxsw4v"
+          );
+          $$renderer3.option(
+            { value: 50, class: "" },
+            ($$renderer4) => {
+              $$renderer4.push(`50`);
+            },
+            "svelte-1rxsw4v"
+          );
+          $$renderer3.option(
+            { value: 100, class: "" },
+            ($$renderer4) => {
+              $$renderer4.push(`100`);
+            },
+            "svelte-1rxsw4v"
+          );
+          $$renderer3.option(
+            { value: 500, class: "" },
+            ($$renderer4) => {
+              $$renderer4.push(`500`);
+            },
+            "svelte-1rxsw4v"
+          );
+          $$renderer3.option(
+            { value: 1e3, class: "" },
+            ($$renderer4) => {
+              $$renderer4.push(`1000`);
+            },
+            "svelte-1rxsw4v"
+          );
         },
         "svelte-1rxsw4v"
       );
-      $$renderer2.push(`</label> <label class="toggle-row svelte-1rxsw4v"><input type="checkbox"${attr("checked", zohoDebug, true)}${attr("disabled", zohoRunning, true)}/> <span${attr_class("toggle-label svelte-1rxsw4v", void 0, { "debug-on": zohoDebug })}>${escape_html("Headless")}</span></label></div> `);
+      $$renderer2.push(`</label> <label class="toggle-row svelte-1rxsw4v"><input type="checkbox"${attr("checked", zohoDebug, true)}${attr("disabled", zohoRunning, true)} class="svelte-1rxsw4v"/> <span${attr_class("toggle-label svelte-1rxsw4v", void 0, { "debug-on": zohoDebug })}>${escape_html("Headless")}</span></label></div> `);
       {
         $$renderer2.push("<!--[!-->");
       }

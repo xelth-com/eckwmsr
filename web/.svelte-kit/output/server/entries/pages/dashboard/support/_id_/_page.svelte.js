@@ -13,13 +13,29 @@ import "../../../../../chunks/toastStore.js";
 function _page($$renderer, $$props) {
   $$renderer.component(($$renderer2) => {
     var $$store_subs;
-    let contact;
+    let contact, meta;
     store_get($$store_subs ??= {}, "$page", page).params.id;
     let threads = [];
+    function findVal(meta2, keys) {
+      if (!meta2) return "";
+      const cfs = meta2.customFields || {};
+      for (const [k, v] of Object.entries(cfs)) {
+        if (keys.some((kw) => k.toLowerCase().includes(kw)) && v) return String(v);
+      }
+      for (const [k, v] of Object.entries(meta2)) {
+        if (keys.some((kw) => k.toLowerCase().includes(kw)) && typeof v === "string" && v) return v;
+      }
+      return "";
+    }
     contact = {};
     contact.fullName || [contact.firstName, contact.lastName].filter(Boolean).join(" ") || threads[0]?.payload?.from || "";
     contact.email || "";
     contact.phone || "";
+    meta = {};
+    findVal(meta, ["company", "einrichtung"]);
+    findVal(meta, ["address", "adresse"]);
+    findVal(meta, ["inbody model", "inbodymodel"]);
+    findVal(meta, ["serial", "seriennummer"]);
     $$renderer2.push(`<div class="detail-page svelte-15vwi97"><div class="back-link"><button class="back-btn svelte-15vwi97">← Back to tickets</button></div> `);
     {
       $$renderer2.push("<!--[-->");

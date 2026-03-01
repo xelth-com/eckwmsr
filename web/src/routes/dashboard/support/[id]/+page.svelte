@@ -69,11 +69,31 @@
     $: customerEmail = contact.email || '';
     $: customerPhone = contact.phone || '';
 
+    function findVal(meta, keys) {
+        if (!meta) return '';
+        const cfs = meta.customFields || {};
+        for (const [k, v] of Object.entries(cfs)) {
+            if (keys.some(kw => k.toLowerCase().includes(kw)) && v) return String(v);
+        }
+        for (const [k, v] of Object.entries(meta)) {
+            if (keys.some(kw => k.toLowerCase().includes(kw)) && typeof v === 'string' && v) return v;
+        }
+        return '';
+    }
+
+    $: meta = threads[0]?.payload?.ticket || {};
+    $: company = findVal(meta, ["company", "einrichtung"]);
+    $: address = findVal(meta, ["address", "adresse"]);
+    $: deviceModel = findVal(meta, ["inbody model", "inbodymodel"]);
+    $: serialNumber = findVal(meta, ["serial", "seriennummer"]);
+
     function computeRelatedTickets() {
         if (allTickets.length === 0 || threads.length === 0) return;
 
         const currentEmail = customerEmail.toLowerCase();
         const currentPhone = customerPhone.replace(/\D/g, '');
+        const currentSerial = serialNumber.toLowerCase().trim();
+        const currentCompany = company.toLowerCase().trim();
 
         // Determine private domain
         const publicDomains = ['gmail.com', 'gmx.de', 'web.de', 't-online.de', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com', 'mail.ru', 'freenet.de', 'me.com', 'mac.com'];
@@ -88,10 +108,14 @@
 
             const otherEmail = (t.email || '').toLowerCase();
             const otherPhone = (t.phone || '').replace(/\D/g, '');
+            const otherSerial = (t.serial_number || '').toLowerCase().trim();
+            const otherCompany = (t.company || '').toLowerCase().trim();
 
             if (currentEmail && otherEmail === currentEmail) return true;
             if (currentPhone && otherPhone === currentPhone) return true;
             if (domain && otherEmail.includes(`@${domain}`)) return true;
+            if (currentSerial && otherSerial === currentSerial) return true;
+            if (currentCompany && currentCompany.length > 3 && otherCompany === currentCompany) return true;
 
             return false;
         });
@@ -163,6 +187,8 @@
             name:  customer || '',
             email: customerEmail,
             issue: summary || subject || '',
+            serial: serialNumber || '',
+            model: deviceModel || '',
         });
         goto(`${base}/dashboard/rma/new?${params}`);
     }
@@ -173,6 +199,8 @@
             name:  customer || '',
             email: customerEmail,
             issue: summary || subject || '',
+            serial: serialNumber || '',
+            model: deviceModel || '',
         });
         goto(`${base}/dashboard/repairs/new?${params}`);
     }
@@ -253,14 +281,30 @@
                 </div>
             </div>
             <h1 class="ticket-subject">{subject}</h1>
-            <div class="ticket-customer-box">
-                <div class="customer-details">
-                    <div class="customer-name">{customer || 'Unknown Customer'}</div>
-                    <div class="customer-contact-info">
-                        {#if customerEmail}<span class="c-item">{customerEmail}</span>{/if}
-                        {#if customerPhone}<span class="c-item">{customerPhone}</span>{/if}
+            <div class="ticket-info-grid">
+                <div class="ticket-customer-box">
+                    <div class="box-icon">👤</div>
+                    <div class="box-details">
+                        <div class="box-title">{customer || 'Unknown Customer'}</div>
+                        <div class="box-sub">
+                            {#if company}<div class="c-item">🏢 {company}</div>{/if}
+                            {#if customerEmail}<div class="c-item">✉️ {customerEmail}</div>{/if}
+                            {#if customerPhone}<div class="c-item">📞 {customerPhone}</div>{/if}
+                            {#if address}<div class="c-item">📍 {address}</div>{/if}
+                        </div>
                     </div>
                 </div>
+                {#if deviceModel || serialNumber}
+                    <div class="ticket-device-box">
+                        <div class="box-icon">💻</div>
+                        <div class="box-details">
+                            <div class="box-title">{deviceModel || 'Unknown Device'}</div>
+                            <div class="box-sub">
+                                {#if serialNumber}<div class="c-item mono">SN: {serialNumber}</div>{/if}
+                            </div>
+                        </div>
+                    </div>
+                {/if}
             </div>
         </header>
 
@@ -425,18 +469,24 @@
     .status-chip.research { background: #1a2a4a; color: #a3bffa; border-color: #4a69bd; }
     .ticket-subject { font-size: 1.4rem; color: #fff; margin: 0 0 1rem 0; line-height: 1.3; }
 
-    .ticket-customer-box {
+    .ticket-info-grid { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .ticket-customer-box, .ticket-device-box {
+        flex: 1;
+        min-width: 250px;
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         gap: 0.75rem;
         background: #252525;
         padding: 0.75rem 1rem;
         border-radius: 8px;
         border: 1px solid #2a2a2a;
     }
-    .customer-details { display: flex; flex-direction: column; gap: 0.2rem; }
-    .customer-name { font-weight: 600; color: #e0e0e0; font-size: 0.95rem; }
-    .customer-contact-info { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.8rem; color: #888; }
+    .ticket-device-box { border-color: #4a69bd; background: rgba(74, 105, 189, 0.05); }
+    .box-icon { font-size: 1.5rem; margin-top: 0.2rem; }
+    .box-details { display: flex; flex-direction: column; gap: 0.3rem; }
+    .box-title { font-weight: 600; color: #e0e0e0; font-size: 0.95rem; }
+    .ticket-device-box .box-title { color: #a3bffa; }
+    .box-sub { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; color: #888; }
     .c-item { display: inline-flex; align-items: center; }
 
     /* Related Tickets Banner */

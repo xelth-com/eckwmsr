@@ -75,7 +75,7 @@
                 <thead>
                     <tr>
                         <th>Ticket #</th>
-                        <th>Subject</th>
+                        <th>Subject / Device</th>
                         <th>Customer</th>
                         <th>Status</th>
                         <th class="center">Threads</th>
@@ -86,9 +86,19 @@
                     {#each tickets as ticket}
                         <tr class="ticket-row" on:click={() => openTicket(ticket.ticket_id)}>
                             <td class="mono highlight">#{ticket.ticket_number || ticket.ticket_id.substring(0,8)}</td>
-                            <td class="subject">{ticket.subject}</td>
+                            <td class="subject-cell">
+                                <div class="subject">{ticket.subject}</div>
+                                {#if ticket.device_model || ticket.serial_number}
+                                    <div class="device-badge">
+                                        {#if ticket.device_model}{ticket.device_model}{/if}
+                                        {#if ticket.device_model && ticket.serial_number} | {/if}
+                                        {#if ticket.serial_number}SN: <span class="mono">{ticket.serial_number}</span>{/if}
+                                    </div>
+                                {/if}
+                            </td>
                             <td class="customer-cell">
                                 <div class="c-name">{ticket.customer || 'Unknown'}</div>
+                                {#if ticket.company}<div class="c-company">{ticket.company}</div>{/if}
                                 {#if ticket.email || ticket.phone}
                                     <div class="c-contact">
                                         {#if ticket.email}<span class="c-email">{ticket.email}</span>{/if}
@@ -190,10 +200,13 @@
     .highlight { color: #6bc5f0; font-weight: bold; }
     .date { color: #888; font-size: 0.85rem; }
     .center { text-align: center; }
-    .subject { font-weight: 500; color: #fff; max-width: 380px; line-height: 1.4; }
+    .subject-cell { display: flex; flex-direction: column; gap: 0.4rem; max-width: 380px; }
+    .subject { font-weight: 500; color: #fff; line-height: 1.4; }
+    .device-badge { font-size: 0.75rem; color: #a3bffa; background: #1a2a4a; padding: 0.2rem 0.5rem; border-radius: 4px; display: inline-block; width: fit-content; border: 1px solid #4a69bd; }
 
     .customer-cell { display: flex; flex-direction: column; gap: 0.25rem; }
     .c-name { font-weight: 600; color: #ccc; }
+    .c-company { font-size: 0.8rem; color: #fbbf24; }
     .c-contact { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.75rem; color: #888; }
     .c-email, .c-phone { white-space: nowrap; }
 
