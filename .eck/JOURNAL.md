@@ -1,5 +1,15 @@
 # Development Journal
 
+## 2026-03-01 — Fix Zoho Attachment Downloads & Unicode Mojibake
+- type: fix
+- scope: scraper, support, backend
+- **Attachment download fix**: Root cause was missing `orgId=20078282365` query parameter (422 error, not OOM). Rewrote `download-attachment` endpoint to use Playwright's native `context.request.get()` instead of `page.evaluate(fetch())` — handles large binaries safely without DOM memory limits.
+- **Attachment extraction fix**: Zoho `/threads/{id}/attachments` endpoint returns 404. Attachments come from individual thread API response (`fullThread.attachments` field). Fixed both single and bulk endpoints.
+- **Upsert deduplication**: `import_thread` now deduplicates by ticketId+threadId. Both insert and update paths download attachments (previously upsert skipped attachments). Added `serde(alias = "name")` to AttachmentRef for Zoho compat.
+- **Unicode mojibake investigation**: Scraper always returned correct UTF-8. The mojibake in DB came from a previous import that piped JSON through Python on Windows (cp1252 stdin silently corrupted UTF-8 bytes). Added `fixMojibake()` safety net function that detects/reverses CP1252 double-encoding patterns in-place.
+- **Re-imported** ticket 53451000033454145: 4 threads with full HTML + 3 PDF attachments (126KB, 1.8MB, 1.7MB), all German chars correct.
+- **Verified**: „Vereinbarung", Körperanalysegerätes, füllen, Außerhalb — all display correctly.
+
 ## 2026-02-28 — Relay Pairing Fix + Three-State Health Check
 - type: fix+feat
 - scope: pairing, mesh, frontend

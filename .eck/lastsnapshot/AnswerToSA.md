@@ -16,3 +16,6 @@
 ## Files Changed
 - `scraper/server.js`: Added fixMojibake(), rewrote download-attachment to use context.request.get(), passed context to runScraper callback
 - `src/handlers/support.rs`: Upsert path now downloads attachments, added serde alias for AttachmentRef
+
+
+[SYSTEM: EMBEDDED]
