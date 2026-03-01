@@ -1,29 +1,16 @@
-# Report: Fix Zoho thread content truncation + collapsible UI + session fixes
+# Report: Deploy scraper session fixes and collapsible UI to production
 **Executor:** Claude Opus 4.6
 **Status:** SUCCESS
 
 ## Changes:
+1. **Git pull** — pulled latest master on antigravity (all scraper + frontend changes)
+2. **Cargo build** — rebuilt release binary (1m 36s, 49 warnings, all pre-existing)
+3. **Restarted eckwmsr** — systemd service restarted, confirmed active (PID 4097001)
+4. **Started scraper under pm2** — `eckwmsr-scraper` (PORT=3211), saved pm2 config for auto-restart
+5. **Verified both services:**
+   - `http://localhost:3210/E/health` → `{"status":"ok"}`
+   - `http://localhost:3211/debug` → all endpoints listed, including new Zoho persistent session endpoints
 
-### 1. Fix truncated thread content (scraper/server.js)
-- Zoho `/threads` list API returns truncated `content` with "..."
-- Now fetches each thread individually via `GET /tickets/{id}/threads/{threadId}` for full HTML content
-- Applied to both single-ticket and bulk endpoints
-
-### 2. Collapsible thread cards (support/[id]/+page.svelte)
-- Collapsed: shows 2-3 line preview with gradient fade-out
-- Expanded: shows full HTML email content + attachments
-- Click header or body preview to expand
-
-### 3. Persistent Zoho session (scraper/server.js)
-- `chromium.launchPersistentContext()` with `.browser-data/`
-- `zohoLogin()` checks session cookies first, skips login if valid
-- Handles "I understand" signin-block warning popup automatically
-- Bulk endpoint: single browser session, 1.5s pause between tickets
-
-### 4. Other additions
-- "Copy for AI" button on ticket detail — strips HTML, prepends prompt, clipboard
-- "Import All to Support" button on Scrapers page — bulk import via single session
-
-### TODO for next session:
-- Re-import tickets with full content (current ones have truncated text)
-- Test "I understand" button selector on real signin-block page
+## Note:
+- The scraper was previously not managed by pm2/systemd on production. Now registered as `eckwmsr-scraper` in pm2 with `pm2 save`.
+- The Rust backend does not depend on scraper code — scraper changes don't require rebuilding eckwmsr.
