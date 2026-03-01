@@ -8,6 +8,6 @@ export const universal = {
   "prerender": false
 };
 export const universal_id = "src/routes/+layout.js";
-export const imports = ["i/immutable/nodes/0.CN7vM7Bj.js","i/immutable/chunks/iR2dgGIM.js","i/immutable/chunks/5f1SCnuC.js","i/immutable/chunks/C5gafh_b.js","i/immutable/chunks/CMZYMwr5.js","i/immutable/chunks/BudWHHCA.js","i/immutable/chunks/DBZ7I83v.js"];
+export const imports = ["i/immutable/nodes/0.DwuOpJGj.js","i/immutable/chunks/iR2dgGIM.js","i/immutable/chunks/5f1SCnuC.js","i/immutable/chunks/C5gafh_b.js","i/immutable/chunks/CMZYMwr5.js","i/immutable/chunks/CFul-AV2.js","i/immutable/chunks/CaqP1QJ9.js"];
 export const stylesheets = ["i/immutable/assets/0.DjzaIuau.css"];
 export const fonts = [];

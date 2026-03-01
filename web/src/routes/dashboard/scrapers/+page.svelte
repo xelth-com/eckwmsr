@@ -189,42 +189,53 @@
         if (!tickets?.length) return;
         zohoImportAllRunning = true;
         zohoImportAllResult = null;
-        zohoImportAllProgress = '';
+        zohoImportAllProgress = `Fetching threads for ${tickets.length} tickets (single session)…`;
 
         let imported = 0;
         let skipped = 0;
         const errors = [];
 
-        for (let i = 0; i < tickets.length; i++) {
-            const ticket = tickets[i];
-            const tid = ticket.id;
-            zohoImportAllProgress = `${i + 1}/${tickets.length}: fetching threads for #${tid}…`;
+        try {
+            // Bulk fetch: one browser, one login, all tickets
+            const bulkRes = await api.post('/S/api/zoho/ticket-threads-bulk', {
+                ticketIds: tickets.map(t => t.id),
+                _from_env: true,
+            });
 
-            try {
-                // Fetch threads + ticket metadata from scraper
-                const threadRes = await api.post('/S/api/zoho/ticket-threads', { ticketId: tid, _from_env: true });
-                if (!threadRes.success || !threadRes.threads?.length) {
-                    skipped++;
+            if (!bulkRes.success || !bulkRes.results) {
+                throw new Error(bulkRes.error || 'Bulk fetch failed');
+            }
+
+            // Now save each result to system
+            for (let i = 0; i < bulkRes.results.length; i++) {
+                const r = bulkRes.results[i];
+                if (!r.success || !r.threads?.length) {
+                    if (r.error) errors.push(`#${r.ticketId}: ${r.error}`);
+                    else skipped++;
                     continue;
                 }
 
-                zohoImportAllProgress = `${i + 1}/${tickets.length}: saving #${tid} (${threadRes.threads.length} threads)…`;
+                zohoImportAllProgress = `Saving ${i + 1}/${bulkRes.results.length}: #${r.ticketId} (${r.threads.length} threads)…`;
 
-                // Save to system
-                const importRes = await api.post('/api/support/import-thread', {
-                    ticketId: tid,
-                    threads: threadRes.threads,
-                    ticket: threadRes.ticket || ticket,
-                });
+                try {
+                    const ticket = r.ticket || tickets.find(t => t.id === r.ticketId) || null;
+                    const importRes = await api.post('/api/support/import-thread', {
+                        ticketId: r.ticketId,
+                        threads: r.threads,
+                        ticket,
+                    });
 
-                if (importRes.imported > 0) {
-                    imported += importRes.imported;
-                } else {
-                    errors.push(`#${tid}: 0 threads saved`);
+                    if (importRes.imported > 0) {
+                        imported += importRes.imported;
+                    } else {
+                        errors.push(`#${r.ticketId}: 0 threads saved`);
+                    }
+                } catch (e) {
+                    errors.push(`#${r.ticketId}: ${e.message}`);
                 }
-            } catch (e) {
-                errors.push(`#${tid}: ${e.message}`);
             }
+        } catch (e) {
+            errors.push(e.message);
         }
 
         zohoImportAllProgress = '';

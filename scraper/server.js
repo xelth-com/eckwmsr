@@ -7,35 +7,47 @@ const app = express();
 app.use(express.json());
 
 // Helper to launch browser, run logic, and close
+// Uses persistent user data directory to preserve cookies/sessions across requests.
 // Pass ?debug=1 in the request body or query to run in headed (visible) mode with slowMo.
+const USER_DATA_DIR = path.join(__dirname, '.browser-data');
+let activeBrowser = null;
+let browserLock = Promise.resolve();
+
 async function runScraper(req, res, logicFn) {
     const debugMode = req.body?.debug || req.query?.debug;
     const headless = !debugMode;
-    const slowMo = debugMode ? 600 : 0; // 600ms delay between actions in debug mode
+    const slowMo = debugMode ? 600 : 0;
     if (debugMode) console.log('[Scraper] DEBUG MODE — browser window will be visible');
 
-    let browser;
+    // Serialize requests to avoid concurrent browser conflicts
+    const prevLock = browserLock;
+    let releaseLock;
+    browserLock = new Promise(r => releaseLock = r);
+    await prevLock;
+
+    let context = null;
+    let page = null;
     try {
-        browser = await chromium.launch({
+        context = await chromium.launchPersistentContext(USER_DATA_DIR, {
             headless,
             slowMo,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
-        });
-        const context = await browser.newContext({
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled'],
             viewport: { width: 1920, height: 1080 },
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             locale: 'de-DE',
             timezoneId: 'Europe/Berlin',
             acceptDownloads: true
         });
-        const page = await context.newPage();
+        page = await context.newPage();
         const result = await logicFn(page, req.body);
         res.json(result);
     } catch (error) {
         console.error("Scraper Error:", error);
         res.status(500).json({ error: error.message });
     } finally {
-        if (browser) await browser.close();
+        if (page) await page.close().catch(() => {});
+        if (context) await context.close().catch(() => {});
+        releaseLock();
     }
 }
 
@@ -152,13 +164,33 @@ async function exactLogin(page, targetUrl, username, password) {
     console.log(`[Exact] URL after login: ${page.url()}`);
 }
 
-// Zoho Desk login sequence
+// Zoho Desk login sequence — uses persistent cookies, only logs in when needed
 async function zohoLogin(page, targetUrl, username, password) {
-    console.log(`[Zoho] Navigating to ${targetUrl}`);
+    // Step 1: Quick session check via API (no navigation needed if cookies are valid)
+    const sessionOk = await page.evaluate(async (base) => {
+        try {
+            const r = await fetch(base + '/tickets?limit=1&orgId=20078282365', { credentials: 'include' });
+            return r.ok;
+        } catch { return false; }
+    }, ZOHO_BASE).catch(() => false);
+
+    if (sessionOk) {
+        console.log('[Zoho] Session cookies valid — skipping login.');
+        return;
+    }
+
+    // Step 2: Need to navigate to Desk to establish session
+    console.log(`[Zoho] Session expired. Navigating to ${targetUrl}`);
     await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForTimeout(3000);
 
     const currentUrl = page.url();
+
+    // Detect signin-block — too many logins, do NOT attempt again
+    if (currentUrl.includes('signin-block')) {
+        throw new Error('Zoho signin blocked (too many logins today). Wait 24h or login manually in Debug mode to refresh the session.');
+    }
+
     if (currentUrl.includes('accounts.zoho')) {
         console.log('[Zoho] Login page detected. Proceeding with authentication...');
 
@@ -176,6 +208,11 @@ async function zohoLogin(page, targetUrl, username, password) {
         console.log('[Zoho] Password submitted, waiting for redirect back to Desk...');
         await page.waitForTimeout(8000);
 
+        // Check for signin-block after login attempt
+        if (page.url().includes('signin-block')) {
+            throw new Error('Zoho signin blocked after login attempt. Wait 24h or login manually in Debug mode.');
+        }
+
         // Handle "Trust this browser" / "Remind me later" popup if it appears
         try {
             const trustBtn = page.locator('button:has-text("Remind me later"), button:has-text("Später erinnern"), .remind_me_later');
@@ -184,8 +221,10 @@ async function zohoLogin(page, targetUrl, username, password) {
                 await page.waitForTimeout(3000);
             }
         } catch (e) {}
+    } else if (currentUrl.includes('desk.inbodysupport.eu')) {
+        console.log('[Zoho] Already logged in (redirected to Desk).');
     } else {
-        console.log('[Zoho] Already logged in or no login redirect occurred.');
+        console.log(`[Zoho] Unexpected URL: ${currentUrl}`);
     }
 
     await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
@@ -193,6 +232,11 @@ async function zohoLogin(page, targetUrl, username, password) {
 }
 
 async function zohoApi(page, path) {
+    // Ensure we're on the Zoho Desk domain so cookies are sent
+    if (!page.url().includes('desk.inbodysupport.eu')) {
+        await page.goto('https://desk.inbodysupport.eu/agent/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await page.waitForTimeout(1000);
+    }
     return page.evaluate(async ([path]) => {
         const sep = path.includes('?') ? '&' : '?';
         const resp = await fetch(path + sep + 'orgId=20078282365', { credentials: 'include' });
@@ -773,6 +817,58 @@ app.post('/api/zoho/ticket-threads', (req, res) => {
 
         console.log(`[Zoho] Fetched ${threads.length} threads for ticket ${ticketId}`);
         return { success: true, ticketId, count: threads.length, threads, ticket };
+    });
+});
+
+// ─── ZOHO DESK: Bulk Fetch Threads for Multiple Tickets ───────────────────────
+// Single browser session, one login, fetches threads for all provided ticket IDs.
+app.post('/api/zoho/ticket-threads-bulk', (req, res) => {
+    runScraper(req, res, async (page, data) => {
+        const username  = data.username || (data._from_env ? process.env.ZOHO_EMAIL    : '') || '';
+        const password  = data.password || (data._from_env ? process.env.ZOHO_PASSWORD : '') || '';
+        const targetUrl = data.url || process.env.ZOHO_URL || 'https://desk.inbodysupport.eu/agent/';
+        const ticketIds = data.ticketIds;
+
+        if (!Array.isArray(ticketIds) || ticketIds.length === 0) throw new Error('ticketIds[] is required');
+        if (!username || !password) throw new Error('ZOHO_EMAIL or ZOHO_PASSWORD missing');
+
+        // Single login for all tickets
+        await zohoLogin(page, targetUrl, username, password);
+        if (!page.url().includes('desk.inbodysupport.eu')) {
+            await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
+        }
+
+        const results = [];
+        for (let i = 0; i < ticketIds.length; i++) {
+            const ticketId = ticketIds[i];
+            // Pause between tickets to avoid Zoho rate limiting
+            if (i > 0) await page.waitForTimeout(1500);
+            try {
+                const ticketRes = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}?include=contacts`);
+                const ticket = ticketRes.error ? null : ticketRes;
+
+                const threadsRes = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}/threads`);
+                if (threadsRes.error) {
+                    results.push({ ticketId, success: false, error: `API ${threadsRes.error}` });
+                    continue;
+                }
+
+                const threads = threadsRes.data || [];
+                for (const thread of threads) {
+                    const attRes = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}/threads/${thread.id}/attachments`);
+                    thread.attachments = attRes.error ? [] : (attRes.data || []);
+                }
+
+                console.log(`[Zoho] Bulk: ${threads.length} threads for ticket ${ticketId} (${i+1}/${ticketIds.length})`);
+                results.push({ ticketId, success: true, count: threads.length, threads, ticket });
+            } catch (e) {
+                console.error(`[Zoho] Bulk: error for ticket ${ticketId}:`, e.message);
+                results.push({ ticketId, success: false, error: e.message });
+            }
+        }
+
+        return { success: true, results };
     });
 });
 
