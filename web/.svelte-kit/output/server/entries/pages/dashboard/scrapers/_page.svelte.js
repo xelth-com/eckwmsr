@@ -22,7 +22,7 @@ function _page($$renderer, $$props) {
     let exactRunning = false;
     let zohoDebug = false;
     let zohoRunning = false;
-    let zohoLimit = 50;
+    let zohoLimit = 10;
     let zohoThreadTicketId = "";
     let zohoThreadRunning = false;
     $$renderer2.push(`<div class="scrapers-page svelte-1rxsw4v"><header class="svelte-1rxsw4v"><h1 class="svelte-1rxsw4v">🤖 Scrapers &amp; Integrations</h1> <div class="header-actions svelte-1rxsw4v"><button class="refresh-btn svelte-1rxsw4v"${attr("disabled", loading, true)}>${escape_html("↻ Refresh")}</button></div></header> <div class="tabs svelte-1rxsw4v"><button${attr_class("tab svelte-1rxsw4v", void 0, { "active": activeTab === "scraper" })}>🎛️ Scraper Admin</button> <button${attr_class("tab svelte-1rxsw4v", void 0, { "active": activeTab === "sync" })}>🔄 Sync History</button></div> `);
@@ -133,6 +133,12 @@ function _page($$renderer, $$props) {
           });
           $$renderer3.option({ value: 100 }, ($$renderer4) => {
             $$renderer4.push(`100`);
+          });
+          $$renderer3.option({ value: 500 }, ($$renderer4) => {
+            $$renderer4.push(`500`);
+          });
+          $$renderer3.option({ value: 1e3 }, ($$renderer4) => {
+            $$renderer4.push(`1000`);
           });
         },
         "svelte-1rxsw4v"

@@ -34,7 +34,7 @@
 
     let zohoDebug = false;
     let zohoRunning = false;
-    let zohoLimit = 50;
+    let zohoLimit = 10;
     let zohoResult = null;
     let zohoJsonOpen = false;
 
@@ -530,6 +530,8 @@ Copy this to ChatGPT/Claude for analysis
                                 <option value={10}>10</option>
                                 <option value={50}>50</option>
                                 <option value={100}>100</option>
+                                <option value={500}>500</option>
+                                <option value={1000}>1000</option>
                             </select>
                         </label>
                         <label class="toggle-row">
