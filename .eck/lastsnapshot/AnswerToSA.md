@@ -1,28 +1,21 @@
-# Report: Fix Zoho session management + Bulk import
+# Report: Collapsible thread cards + Zoho session fixes
 **Executor:** Claude Opus 4.6
 **Status:** SUCCESS
 
 ## Changes:
 
-### 1. Persistent browser context (scraper/server.js)
-- `runScraper()` now uses `chromium.launchPersistentContext()` with `.browser-data/` directory
-- Cookies/sessions survive across requests — no repeated logins
-- Added request serialization lock to avoid concurrent browser conflicts
+### 1. Collapsible thread cards (support/[id]/+page.svelte)
+- Thread cards now start collapsed — showing only direction badge (INBOUND/OUTBOUND), from, and date
+- Click header to expand/collapse (▶/▼ arrow indicator)
+- Multiple threads can be expanded simultaneously
+- Clickable header with hover effect
 
-### 2. Smart Zoho login (scraper/server.js)
-- `zohoLogin()` first checks if session cookies are valid via a lightweight API call
-- If cookies work → skips login entirely (no navigation, no credentials)
-- If expired → navigates to Desk, tries login only if not blocked
-- Detects `signin-block` URL and throws clear error instead of retrying
+### 2. Zoho session management (scraper/server.js)
+- Persistent browser context (`.browser-data/`) preserves cookies across requests
+- `zohoLogin()` checks session validity via API call before navigating — skips login if cookies valid
+- Detects `signin-block` and returns clear error instead of retrying
 - `zohoApi()` ensures page is on correct domain before fetch
+- Bulk endpoint with 1.5s pause between tickets
 
-### 3. Bulk thread fetch endpoint (scraper/server.js)
-- `POST /api/zoho/ticket-threads-bulk` — accepts `ticketIds[]`, single login, 1.5s pause between tickets
-- Frontend `importAllTickets()` uses bulk endpoint instead of N separate calls
-
-### How to initialize after signin-block expires:
-1. Go to Scrapers page
-2. Enable "Debug (headed)" checkbox
-3. Click "Fetch Tickets" — Playwright opens visible browser
-4. Complete Zoho login manually (if captcha/2FA)
-5. Cookies saved to `.browser-data/` — all subsequent requests use saved session
+### 3. Frontend bulk import (scrapers/+page.svelte)
+- Uses `/api/zoho/ticket-threads-bulk` — single browser session for all tickets

@@ -12,6 +12,9 @@
     let loading = true;
     let error = null;
 
+    // Track which threads are expanded (by documentId)
+    let expandedThreads = new Set();
+
     // attachment arrays keyed by document UUID
     let attachments = {};
 
@@ -229,23 +232,33 @@
             <div class="thread-list">
                 {#each threads as thread (thread.documentId)}
                     {@const dir = directionLabel(thread.payload?.direction)}
-                    <div class="thread-card {dir.cls}">
-                        <div class="thread-header">
+                    {@const isExpanded = expandedThreads.has(thread.documentId)}
+                    <div class="thread-card {dir.cls}" class:expanded={isExpanded}>
+                        <!-- svelte-ignore a11y-click-events-have-key-events -->
+                        <div class="thread-header" on:click={() => {
+                            if (expandedThreads.has(thread.documentId)) {
+                                expandedThreads.delete(thread.documentId);
+                            } else {
+                                expandedThreads.add(thread.documentId);
+                            }
+                            expandedThreads = expandedThreads;
+                        }}>
+                            <span class="expand-arrow">{isExpanded ? '▼' : '▶'}</span>
                             <span class="dir-badge {dir.cls}">{dir.label}</span>
                             <span class="thread-from">{thread.payload?.from ?? ''}</span>
                             <span class="thread-date">{formatDate(thread.payload?.createdTime)}</span>
                         </div>
 
-                        {#if thread.payload?.content}
-                            <div class="thread-body-wrapper">
-                                <!-- Rendered as HTML — Zoho email body -->
-                                <div class="thread-html-body">
-                                    {@html thread.payload.content}
+                        {#if isExpanded}
+                            {#if thread.payload?.content}
+                                <div class="thread-body-wrapper">
+                                    <div class="thread-html-body">
+                                        {@html thread.payload.content}
+                                    </div>
                                 </div>
-                            </div>
-                        {:else}
-                            <div class="thread-empty">(no content)</div>
-                        {/if}
+                            {:else}
+                                <div class="thread-empty">(no content)</div>
+                            {/if}
 
                         <!-- Attachments for this thread -->
                         {#if attachments[thread.documentId]?.length}
@@ -271,6 +284,7 @@
                                     </a>
                                 {/each}
                             </div>
+                        {/if}
                         {/if}
                     </div>
                 {/each}
@@ -355,7 +369,19 @@
         background: #252525;
         border-bottom: 1px solid #2a2a2a;
         flex-wrap: wrap;
+        cursor: pointer;
+        user-select: none;
+        transition: background 0.15s;
     }
+    .thread-header:hover { background: #2a2a2a; }
+    .expand-arrow {
+        font-size: 0.7rem;
+        color: #666;
+        flex-shrink: 0;
+        width: 1rem;
+        text-align: center;
+    }
+    .thread-card.expanded .expand-arrow { color: #aaa; }
     .dir-badge {
         font-size: 0.7rem;
         font-weight: 700;
