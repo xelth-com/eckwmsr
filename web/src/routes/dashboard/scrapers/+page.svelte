@@ -46,6 +46,10 @@
     let zohoImportRunning = false;
     let zohoImportResult = null;
 
+    let zohoImportAllRunning = false;
+    let zohoImportAllProgress = '';
+    let zohoImportAllResult = null;
+
     let expandedSyncLogs = new Set();
 
     onMount(async () => {
@@ -177,6 +181,60 @@
             toastStore.add('Import failed: ' + e.message, 'error');
         } finally {
             zohoImportRunning = false;
+        }
+    }
+
+    async function importAllTickets() {
+        const tickets = zohoResult?.tickets;
+        if (!tickets?.length) return;
+        zohoImportAllRunning = true;
+        zohoImportAllResult = null;
+        zohoImportAllProgress = '';
+
+        let imported = 0;
+        let skipped = 0;
+        const errors = [];
+
+        for (let i = 0; i < tickets.length; i++) {
+            const ticket = tickets[i];
+            const tid = ticket.id;
+            zohoImportAllProgress = `${i + 1}/${tickets.length}: fetching threads for #${tid}…`;
+
+            try {
+                // Fetch threads + ticket metadata from scraper
+                const threadRes = await api.post('/S/api/zoho/ticket-threads', { ticketId: tid, _from_env: true });
+                if (!threadRes.success || !threadRes.threads?.length) {
+                    skipped++;
+                    continue;
+                }
+
+                zohoImportAllProgress = `${i + 1}/${tickets.length}: saving #${tid} (${threadRes.threads.length} threads)…`;
+
+                // Save to system
+                const importRes = await api.post('/api/support/import-thread', {
+                    ticketId: tid,
+                    threads: threadRes.threads,
+                    ticket: threadRes.ticket || ticket,
+                });
+
+                if (importRes.imported > 0) {
+                    imported += importRes.imported;
+                } else {
+                    errors.push(`#${tid}: 0 threads saved`);
+                }
+            } catch (e) {
+                errors.push(`#${tid}: ${e.message}`);
+            }
+        }
+
+        zohoImportAllProgress = '';
+        zohoImportAllResult = { success: errors.length === 0, imported, skipped, total: tickets.length, errors };
+        zohoImportAllRunning = false;
+
+        if (imported > 0) {
+            toastStore.add(`Imported ${imported} thread(s) from ${tickets.length} tickets`, 'success');
+        } else {
+            toastStore.add('Import finished with errors', 'error');
         }
     }
 
@@ -489,8 +547,29 @@ Copy this to ChatGPT/Claude for analysis
                                     {zohoJsonOpen ? '▼' : '▶'} View JSON ({zohoResult.tickets.length} tickets)
                                 </button>
                                 {#if zohoJsonOpen}<pre class="result-json">{JSON.stringify(zohoResult.tickets, null, 2)}</pre>{/if}
+                                <button class="run-btn import-run" on:click={importAllTickets}
+                                    disabled={zohoImportAllRunning || scraperOnline !== true}>
+                                    {#if zohoImportAllRunning}<span class="spinner">⏳</span> {zohoImportAllProgress || 'Importing...'}
+                                    {:else}📥 Import All to Support{/if}
+                                </button>
                             {/if}
                         </div>
+                        {#if zohoImportAllResult}
+                            <div class="result-box" class:result-ok={zohoImportAllResult.success} class:result-err={!zohoImportAllResult.success}>
+                                <div class="result-summary">
+                                    {zohoImportAllResult.success ? '✅' : '⚠️'}
+                                    {zohoImportAllResult.imported} thread(s) imported from {zohoImportAllResult.total} tickets
+                                    {#if zohoImportAllResult.skipped > 0}({zohoImportAllResult.skipped} skipped — no threads){/if}
+                                </div>
+                                {#if zohoImportAllResult.errors?.length}
+                                    <div class="import-errors">
+                                        {#each zohoImportAllResult.errors as err}
+                                            <div class="import-error-line">⚠️ {err}</div>
+                                        {/each}
+                                    </div>
+                                {/if}
+                            </div>
+                        {/if}
                     {/if}
 
                     <div class="threads-section">
