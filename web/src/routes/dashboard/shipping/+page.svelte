@@ -126,6 +126,29 @@
         expandedShipments = expandedShipments;
     }
 
+    function formatDeliveryDate(statusDate, statusTime) {
+        if (!statusDate) return null;
+        let d;
+        if (statusDate.includes('T')) {
+            // DHL ISO format: "2026-02-20T17:25:16.508"
+            d = new Date(statusDate);
+        } else if (statusDate.includes('.')) {
+            // OPAL format: "19.02.26" (DD.MM.YY) + statusTime "11:54"
+            const parts = statusDate.split('.');
+            if (parts.length === 3) {
+                let [dd, mm, yy] = parts;
+                const year = yy.length === 2 ? '20' + yy : yy;
+                const timeStr = statusTime || '00:00';
+                d = new Date(`${year}-${mm}-${dd}T${timeStr}:00`);
+            }
+        }
+        if (!d || isNaN(d.getTime())) return statusDate + (statusTime ? ' ' + statusTime : '');
+        return d.toLocaleString('de-DE', {
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+        });
+    }
+
     function parseRawResponse(raw) {
         if (!raw) return null;
         try { return JSON.parse(raw); } catch { return null; }
@@ -293,7 +316,7 @@
                                     <td>
                                         {#if details?.status_date}
                                             <div class="delivery-info">
-                                                <span>{details.status_date} {details.status_time || ""}</span>
+                                                <span>{formatDeliveryDate(details.status_date, details.status_time)}</span>
                                                 {#if details.receiver}<span class="receiver">📝 {details.receiver}</span>{/if}
                                             </div>
                                         {:else}<span class="muted">-</span>{/if}

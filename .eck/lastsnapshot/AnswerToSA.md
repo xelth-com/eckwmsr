@@ -6,3 +6,6 @@
 - Fixed snake_case vs camelCase parsing bug in `shipping/+page.svelte`: changed `shipment.rawResponse` to `shipment.raw_response` and `shipment.trackingNumber` to `shipment.tracking_number`. This resolved the "UNKNOWN"/"Pending..." display issue.
 - Added "Repair" button to the Shipments list actions column, routing to `/dashboard/repairs/new` with tracking number, customer name, and issue pre-filled via URL params.
 - Updated `repairs/[id]/+page.svelte` to parse `tracking` URL param, store it in `metadata.trackingNumber`, and display a "Linked Shipment" banner alongside the existing ticket link.
+
+
+[SYSTEM: EMBEDDED]
