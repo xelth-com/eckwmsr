@@ -186,9 +186,18 @@ async function zohoLogin(page, targetUrl, username, password) {
 
     const currentUrl = page.url();
 
-    // Detect signin-block — too many logins, do NOT attempt again
-    if (currentUrl.includes('signin-block')) {
-        throw new Error('Zoho signin blocked (too many logins today). Wait 24h or login manually in Debug mode to refresh the session.');
+    // Detect signin-block/announcement — click "I understand" if present, otherwise fail
+    if (currentUrl.includes('signin-block') || currentUrl.includes('announcement')) {
+        console.log('[Zoho] Signin warning/block page detected. Looking for "I understand" button...');
+        try {
+            const understandBtn = page.locator('button:has-text("I understand"), button:has-text("Ich verstehe"), a:has-text("I understand"), .understand_btn, #understand_btn');
+            await understandBtn.first().waitFor({ state: 'visible', timeout: 5000 });
+            await understandBtn.first().click();
+            console.log('[Zoho] Clicked "I understand", waiting for redirect...');
+            await page.waitForTimeout(5000);
+        } catch {
+            throw new Error('Zoho signin blocked (too many logins today). Could not find "I understand" button. Wait 24h or login manually in Debug mode.');
+        }
     }
 
     if (currentUrl.includes('accounts.zoho')) {
@@ -809,8 +818,13 @@ app.post('/api/zoho/ticket-threads', (req, res) => {
 
         const threads = threadsRes.data || [];
 
-        // Fetch attachments for each thread
+        // Fetch full content + attachments for each thread (list API returns truncated content)
         for (const thread of threads) {
+            const fullThread = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}/threads/${thread.id}`);
+            if (!fullThread.error && fullThread.content) {
+                thread.content = fullThread.content;
+                thread.summary = fullThread.summary || thread.summary;
+            }
             const attRes = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}/threads/${thread.id}/attachments`);
             thread.attachments = attRes.error ? [] : (attRes.data || []);
         }
@@ -856,6 +870,11 @@ app.post('/api/zoho/ticket-threads-bulk', (req, res) => {
 
                 const threads = threadsRes.data || [];
                 for (const thread of threads) {
+                    const fullThread = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}/threads/${thread.id}`);
+                    if (!fullThread.error && fullThread.content) {
+                        thread.content = fullThread.content;
+                        thread.summary = fullThread.summary || thread.summary;
+                    }
                     const attRes = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}/threads/${thread.id}/attachments`);
                     thread.attachments = attRes.error ? [] : (attRes.data || []);
                 }

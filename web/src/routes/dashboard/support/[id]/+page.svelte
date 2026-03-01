@@ -249,17 +249,22 @@
                             <span class="thread-date">{formatDate(thread.payload?.createdTime)}</span>
                         </div>
 
-                        {#if isExpanded}
-                            {#if thread.payload?.content}
-                                <div class="thread-body-wrapper">
-                                    <div class="thread-html-body">
-                                        {@html thread.payload.content}
-                                    </div>
+                        {#if thread.payload?.content}
+                            <!-- svelte-ignore a11y-click-events-have-key-events -->
+                            <div class="thread-body-wrapper" class:collapsed={!isExpanded}
+                                on:click={() => { if (!isExpanded) { expandedThreads.add(thread.documentId); expandedThreads = expandedThreads; } }}>
+                                <div class="thread-html-body">
+                                    {@html thread.payload.content}
                                 </div>
-                            {:else}
-                                <div class="thread-empty">(no content)</div>
-                            {/if}
+                                {#if !isExpanded}
+                                    <div class="thread-fade"></div>
+                                {/if}
+                            </div>
+                        {:else}
+                            <div class="thread-empty">(no content)</div>
+                        {/if}
 
+                        {#if isExpanded}
                         <!-- Attachments for this thread -->
                         {#if attachments[thread.documentId]?.length}
                             <div class="attachment-list">
@@ -397,7 +402,21 @@
     .thread-from { font-size: 0.85rem; color: #ccc; flex: 1; font-family: monospace; }
     .thread-date { font-size: 0.8rem; color: #666; font-family: monospace; margin-left: auto; white-space: nowrap; }
 
-    .thread-body-wrapper { overflow: auto; max-height: 600px; }
+    .thread-body-wrapper { overflow: auto; max-height: none; position: relative; }
+    .thread-body-wrapper.collapsed {
+        max-height: 4.5em;
+        overflow: hidden;
+        cursor: pointer;
+    }
+    .thread-fade {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 2.5em;
+        background: linear-gradient(transparent, #1e1e1e);
+        pointer-events: none;
+    }
 
     /* HTML email body — scoped using :global to reach into {@html} content */
     .thread-html-body {
