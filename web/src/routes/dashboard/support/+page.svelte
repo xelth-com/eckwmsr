@@ -52,9 +52,9 @@
 
 <div class="support-page">
     <header>
-        <h1>💬 Support Tickets</h1>
+        <h1>Support Tickets</h1>
         <button class="refresh-btn" on:click={loadTickets} disabled={loading}>
-            {loading ? '↻ Loading...' : '↻ Refresh'}
+            {loading ? 'Loading...' : 'Refresh'}
         </button>
     </header>
 
@@ -64,28 +64,36 @@
         <div class="error-box">Failed to load: {error}</div>
     {:else if tickets.length === 0}
         <div class="empty-state">
-            <p>📭 No support tickets imported yet</p>
-            <small>Use the Scrapers page → Zoho Desk → Fetch Threads → Save to System</small>
+            <p>No support tickets imported yet</p>
+            <small>Use the Scrapers page - Zoho Desk - Fetch Threads - Save to System</small>
         </div>
     {:else}
         <div class="table-container">
             <table>
                 <thead>
                     <tr>
-                        <th>Ticket ID</th>
+                        <th>Ticket #</th>
                         <th>Subject</th>
                         <th>Customer</th>
                         <th>Status</th>
-                        <th>Threads</th>
+                        <th class="center">Threads</th>
                         <th>Latest Update</th>
                     </tr>
                 </thead>
                 <tbody>
                     {#each tickets as ticket}
                         <tr class="ticket-row" on:click={() => openTicket(ticket.ticket_id)}>
-                            <td class="mono">{ticket.ticket_id}</td>
+                            <td class="mono highlight">#{ticket.ticket_number || ticket.ticket_id.substring(0,8)}</td>
                             <td class="subject">{ticket.subject}</td>
-                            <td class="customer">{ticket.customer || '-'}</td>
+                            <td class="customer-cell">
+                                <div class="c-name">{ticket.customer || 'Unknown'}</div>
+                                {#if ticket.email || ticket.phone}
+                                    <div class="c-contact">
+                                        {#if ticket.email}<span class="c-email">{ticket.email}</span>{/if}
+                                        {#if ticket.phone}<span class="c-phone">{ticket.phone}</span>{/if}
+                                    </div>
+                                {/if}
+                            </td>
                             <td>
                                 <span class="status-badge {statusClass(ticket.status)}">
                                     {ticket.status}
@@ -177,10 +185,15 @@
     .ticket-row:last-child td { border-bottom: none; }
 
     .mono { font-family: monospace; }
+    .highlight { color: #6bc5f0; font-weight: bold; }
     .date { color: #888; font-size: 0.85rem; }
     .center { text-align: center; }
-    .subject { font-weight: 500; color: #fff; max-width: 380px; }
-    .customer { color: #aaa; }
+    .subject { font-weight: 500; color: #fff; max-width: 380px; line-height: 1.4; }
+
+    .customer-cell { display: flex; flex-direction: column; gap: 0.25rem; }
+    .c-name { font-weight: 600; color: #ccc; }
+    .c-contact { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.75rem; color: #888; }
+    .c-email, .c-phone { white-space: nowrap; }
 
     .status-badge {
         display: inline-block;

@@ -12,6 +12,9 @@
     let loading = true;
     let error = null;
 
+    let allTickets = [];
+    let relatedTickets = [];
+
     // Track which threads are expanded (by documentId)
     let expandedThreads = new Set();
 
@@ -20,6 +23,11 @@
 
     onMount(async () => {
         await loadThreads();
+        // Load all tickets asynchronously for the "Related Tickets" feature
+        api.get('/api/support/tickets').then(res => {
+            allTickets = res || [];
+            computeRelatedTickets();
+        }).catch(e => console.warn('Failed to load related tickets', e));
     });
 
     async function loadThreads() {
@@ -29,6 +37,7 @@
             threads = await api.get(`/api/support/tickets/${ticketId}/threads`);
             // Load attachments for every thread in parallel
             await Promise.all(threads.map(t => loadAttachments(t.documentId)));
+            computeRelatedTickets();
         } catch (e) {
             console.error(e);
             error = e.message;
@@ -48,6 +57,44 @@
         }
         // Trigger reactivity
         attachments = attachments;
+    }
+
+    // Reactively compute contact info
+    $: ticketNumber = threads[0]?.payload?.ticket?.ticketNumber ?? ticketId;
+    $: subject = threads[0]?.payload?.ticket?.subject ?? ticketId;
+    $: ticketStatus = threads[0]?.payload?.ticket?.status ?? '';
+
+    $: contact = threads[0]?.payload?.ticket?.contact || {};
+    $: customer = contact.fullName || [contact.firstName, contact.lastName].filter(Boolean).join(' ') || threads[0]?.payload?.from || '';
+    $: customerEmail = contact.email || '';
+    $: customerPhone = contact.phone || '';
+
+    function computeRelatedTickets() {
+        if (allTickets.length === 0 || threads.length === 0) return;
+
+        const currentEmail = customerEmail.toLowerCase();
+        const currentPhone = customerPhone.replace(/\D/g, '');
+
+        // Determine private domain
+        const publicDomains = ['gmail.com', 'gmx.de', 'web.de', 't-online.de', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com', 'mail.ru', 'freenet.de', 'me.com', 'mac.com'];
+        let domain = '';
+        if (currentEmail.includes('@')) {
+            const d = currentEmail.split('@')[1];
+            if (!publicDomains.includes(d)) domain = d;
+        }
+
+        relatedTickets = allTickets.filter(t => {
+            if (t.ticket_id === ticketId) return false;
+
+            const otherEmail = (t.email || '').toLowerCase();
+            const otherPhone = (t.phone || '').replace(/\D/g, '');
+
+            if (currentEmail && otherEmail === currentEmail) return true;
+            if (currentPhone && otherPhone === currentPhone) return true;
+            if (domain && otherEmail.includes(`@${domain}`)) return true;
+
+            return false;
+        });
     }
 
     function formatDate(str) {
@@ -78,14 +125,6 @@
         if (m.startsWith('image/')) return '🖼️';
         return '📎';
     }
-
-    // Subject from the first thread's ticket metadata (consistent across threads)
-    $: subject = threads[0]?.payload?.ticket?.subject ?? ticketId;
-    $: ticketStatus = threads[0]?.payload?.ticket?.status ?? '';
-    $: customer = threads[0]?.payload?.ticket?.contact?.fullName
-        ?? threads[0]?.payload?.from
-        ?? '';
-    $: customerEmail = threads[0]?.payload?.ticket?.contact?.email ?? '';
 
     // ── AI Summary ────────────────────────────────────────────────────────────
     let summary = '';
@@ -180,47 +219,68 @@
     {:else}
         <header class="ticket-header">
             <div class="ticket-meta">
-                <span class="ticket-id-badge">#{ticketId}</span>
+                <span class="ticket-id-badge">#{ticketNumber}</span>
                 {#if ticketStatus}
                     <span class="status-chip">{ticketStatus}</span>
                 {/if}
                 <div class="header-actions">
                     <button class="copy-ai-btn" on:click={copyForAI} disabled={threads.length === 0} title="Copy cleaned text & prompt to clipboard">
-                        🤖 Copy for AI
+                        Copy for AI
                     </button>
                     <button class="ai-btn" on:click={generateSummary} disabled={isSummarizing || threads.length === 0}>
                         {#if isSummarizing}
-                            <span class="spinner">⏳</span> Summarizing…
+                            <span class="spinner">...</span> Summarizing
                         {:else}
-                            ✨ Summarize with AI
+                            Summarize with AI
                         {/if}
                     </button>
                     <button class="rma-btn" on:click={createRMA} disabled={threads.length === 0}>
-                        📋 Create RMA
+                        Create RMA
                     </button>
                     <button class="repair-btn" on:click={createRepair} disabled={threads.length === 0}>
-                        🛠️ Create Repair
+                        Create Repair
                     </button>
                 </div>
             </div>
             <h1 class="ticket-subject">{subject}</h1>
-            {#if customer}
-                <div class="ticket-customer">👤 {customer}{#if customerEmail} · {customerEmail}{/if}</div>
-            {/if}
+            <div class="ticket-customer-box">
+                <div class="customer-details">
+                    <div class="customer-name">{customer || 'Unknown Customer'}</div>
+                    <div class="customer-contact-info">
+                        {#if customerEmail}<span class="c-item">{customerEmail}</span>{/if}
+                        {#if customerPhone}<span class="c-item">{customerPhone}</span>{/if}
+                    </div>
+                </div>
+            </div>
         </header>
+
+        {#if relatedTickets.length > 0}
+            <div class="related-tickets-banner">
+                <div class="related-content">
+                    <strong>Found {relatedTickets.length} related ticket{relatedTickets.length > 1 ? 's' : ''}</strong> from the same customer or domain:
+                    <div class="related-links">
+                        {#each relatedTickets as rt}
+                            <a href="{base}/dashboard/support/{rt.ticket_id}" class="related-link">
+                                #{rt.ticket_number || rt.ticket_id.substring(0,8)} ({rt.status})
+                            </a>
+                        {/each}
+                    </div>
+                </div>
+            </div>
+        {/if}
 
         {#if summary || isSummarizing || summaryError}
             <div class="summary-panel">
-                <div class="summary-title">✨ AI Summary</div>
+                <div class="summary-title">AI Summary</div>
                 {#if isSummarizing}
-                    <div class="summary-loading">Generating summary…</div>
+                    <div class="summary-loading">Generating summary...</div>
                 {:else if summaryError}
-                    <div class="summary-error">⚠️ {summaryError}</div>
+                    <div class="summary-error">{summaryError}</div>
                 {:else}
                     <div class="summary-text">{summary}</div>
                     <div class="summary-actions">
-                        <button class="use-as-issue-btn" on:click={createRMA}>→ Use for new RMA</button>
-                        <button class="use-as-issue-btn" on:click={createRepair}>→ Use for new Repair</button>
+                        <button class="use-as-issue-btn" on:click={createRMA}>-> Use for new RMA</button>
+                        <button class="use-as-issue-btn" on:click={createRepair}>-> Use for new Repair</button>
                     </div>
                 {/if}
             </div>
@@ -265,7 +325,6 @@
                         {/if}
 
                         {#if isExpanded}
-                        <!-- Attachments for this thread -->
                         {#if attachments[thread.documentId]?.length}
                             <div class="attachment-list">
                                 {#each attachments[thread.documentId] as att}
@@ -334,8 +393,9 @@
     .ticket-meta { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }
     .ticket-id-badge {
         font-family: monospace;
-        font-size: 0.8rem;
-        color: #4a69bd;
+        font-size: 0.85rem;
+        font-weight: bold;
+        color: #6bc5f0;
         background: #1a2a3a;
         border: 1px solid #4a69bd;
         border-radius: 4px;
@@ -351,8 +411,47 @@
         padding: 0.15rem 0.6rem;
         text-transform: capitalize;
     }
-    .ticket-subject { font-size: 1.4rem; color: #fff; margin: 0 0 0.4rem 0; line-height: 1.3; }
-    .ticket-customer { font-size: 0.85rem; color: #888; }
+    .ticket-subject { font-size: 1.4rem; color: #fff; margin: 0 0 1rem 0; line-height: 1.3; }
+
+    .ticket-customer-box {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        background: #252525;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        border: 1px solid #2a2a2a;
+    }
+    .customer-details { display: flex; flex-direction: column; gap: 0.2rem; }
+    .customer-name { font-weight: 600; color: #e0e0e0; font-size: 0.95rem; }
+    .customer-contact-info { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.8rem; color: #888; }
+    .c-item { display: inline-flex; align-items: center; }
+
+    /* Related Tickets Banner */
+    .related-tickets-banner {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+        background: #3a2a0a;
+        border: 1px solid #f59e0b;
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+    }
+    .related-content { color: #fef3c7; font-size: 0.9rem; line-height: 1.4; }
+    .related-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+    .related-link {
+        background: #b45309;
+        color: #fff;
+        text-decoration: none;
+        padding: 0.2rem 0.6rem;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 0.8rem;
+        font-weight: bold;
+        transition: background 0.2s;
+    }
+    .related-link:hover { background: #d97706; }
 
     /* Thread list */
     .thread-list { display: flex; flex-direction: column; gap: 1rem; }
@@ -418,7 +517,7 @@
         pointer-events: none;
     }
 
-    /* HTML email body — scoped using :global to reach into {@html} content */
+    /* HTML email body */
     .thread-html-body {
         padding: 1rem 1.25rem;
         font-size: 0.9rem;
@@ -427,7 +526,6 @@
         word-wrap: break-word;
         overflow-wrap: break-word;
     }
-    /* Allow styles from Zoho HTML to render, but constrain widths/overflow */
     :global(.thread-html-body img) { max-width: 100%; height: auto; }
     :global(.thread-html-body table) { max-width: 100%; overflow-x: auto; display: block; }
     :global(.thread-html-body a) { color: #93c5fd; }

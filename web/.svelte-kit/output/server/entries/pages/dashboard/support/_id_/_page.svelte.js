@@ -13,7 +13,13 @@ import "../../../../../chunks/toastStore.js";
 function _page($$renderer, $$props) {
   $$renderer.component(($$renderer2) => {
     var $$store_subs;
+    let contact;
     store_get($$store_subs ??= {}, "$page", page).params.id;
+    let threads = [];
+    contact = {};
+    contact.fullName || [contact.firstName, contact.lastName].filter(Boolean).join(" ") || threads[0]?.payload?.from || "";
+    contact.email || "";
+    contact.phone || "";
     $$renderer2.push(`<div class="detail-page svelte-15vwi97"><div class="back-link"><button class="back-btn svelte-15vwi97">← Back to tickets</button></div> `);
     {
       $$renderer2.push("<!--[-->");

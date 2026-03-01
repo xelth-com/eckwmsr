@@ -25,9 +25,12 @@ const SCRAPER_BASE: &str = "http://127.0.0.1:3211";
 #[derive(Serialize)]
 pub struct TicketSummary {
     pub ticket_id: String,
+    pub ticket_number: String,
     pub subject: String,
     pub status: String,
     pub customer: String,
+    pub email: String,
+    pub phone: String,
     pub thread_count: usize,
     pub latest_update: String,
 }
@@ -68,6 +71,8 @@ pub async fn list_tickets(
             let latest = &threads[0];
             let meta = &latest.payload["ticket"];
 
+            let ticket_number = meta["ticketNumber"].as_str().unwrap_or("").to_string();
+
             let subject = meta["subject"]
                 .as_str()
                 .unwrap_or("(no subject)")
@@ -78,12 +83,24 @@ pub async fn list_tickets(
                 .unwrap_or("unknown")
                 .to_string();
 
-            let customer = meta["contact"]["fullName"]
+            let contact = &meta["contact"];
+
+            let mut customer = contact["fullName"]
                 .as_str()
-                .or_else(|| meta["contactId"].as_str())
-                .or_else(|| latest.payload["from"].as_str())
                 .unwrap_or("")
                 .to_string();
+
+            if customer.is_empty() {
+                let fname = contact["firstName"].as_str().unwrap_or("");
+                let lname = contact["lastName"].as_str().unwrap_or("");
+                customer = format!("{} {}", fname, lname).trim().to_string();
+            }
+            if customer.is_empty() {
+                customer = latest.payload["from"].as_str().unwrap_or("").to_string();
+            }
+
+            let email = contact["email"].as_str().unwrap_or("").to_string();
+            let phone = contact["phone"].as_str().unwrap_or("").to_string();
 
             let latest_update = latest.payload["createdTime"]
                 .as_str()
@@ -92,9 +109,12 @@ pub async fn list_tickets(
 
             TicketSummary {
                 ticket_id,
+                ticket_number,
                 subject,
                 status,
                 customer,
+                email,
+                phone,
                 thread_count: threads.len(),
                 latest_update,
             }
