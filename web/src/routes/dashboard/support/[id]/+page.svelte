@@ -124,6 +124,43 @@
         });
         goto(`${base}/dashboard/repairs/new?${params}`);
     }
+
+    async function copyForAI() {
+        if (!threads || threads.length === 0) {
+            toastStore.add('No threads to copy', 'warning');
+            return;
+        }
+
+        const systemPrompt = "You are a technical support assistant. Summarize the following customer support email thread. Extract the core hardware or software problem, any troubleshooting steps already attempted, and the current status. Be concise and professional. Format the result in 2-3 short paragraphs.\n\n---\n\n";
+
+        const parts = threads.map(t => {
+            const dir = t.payload?.direction || '?';
+            const from = t.payload?.from || '?';
+            const time = t.payload?.createdTime || '?';
+
+            const rawContent = t.payload?.content || t.payload?.summary || '';
+            const tempDiv = document.createElement("div");
+            tempDiv.innerHTML = rawContent;
+            const cleanText = (tempDiv.textContent || tempDiv.innerText || '').replace(/\s+/g, ' ').trim();
+
+            if (!cleanText) return null;
+            return `[${dir.toUpperCase()} | From: ${from} | ${time}]\n${cleanText}`;
+        }).filter(Boolean);
+
+        if (parts.length === 0) {
+            toastStore.add('No readable text found in threads', 'warning');
+            return;
+        }
+
+        const fullText = systemPrompt + parts.join("\n\n---\n\n");
+
+        try {
+            await navigator.clipboard.writeText(fullText);
+            toastStore.add('Copied! Paste it into ChatGPT, Claude, or Gemini.', 'success', 4000);
+        } catch (err) {
+            toastStore.add('Failed to copy: ' + err.message, 'error');
+        }
+    }
 </script>
 
 <div class="detail-page">
@@ -145,6 +182,9 @@
                     <span class="status-chip">{ticketStatus}</span>
                 {/if}
                 <div class="header-actions">
+                    <button class="copy-ai-btn" on:click={copyForAI} disabled={threads.length === 0} title="Copy cleaned text & prompt to clipboard">
+                        🤖 Copy for AI
+                    </button>
                     <button class="ai-btn" on:click={generateSummary} disabled={isSummarizing || threads.length === 0}>
                         {#if isSummarizing}
                             <span class="spinner">⏳</span> Summarizing…
@@ -433,6 +473,24 @@
     }
     .repair-btn:hover:not(:disabled) { background: #1e3a5f; }
     .repair-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .copy-ai-btn {
+        background: #2a2a2a;
+        color: #ccc;
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 0.4rem 0.9rem;
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .copy-ai-btn:hover:not(:disabled) {
+        background: #3a3a3a;
+        color: #fff;
+        border-color: #666;
+    }
+    .copy-ai-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
     /* AI Summary panel */
     .summary-panel {
