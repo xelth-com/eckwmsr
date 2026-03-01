@@ -286,13 +286,71 @@
         expandedSyncLogs = expandedSyncLogs;
     }
 
+    function summarizeError(error) {
+        if (!error) return 'Unknown error';
+        const e = String(error).toLowerCase();
+        if (e.includes('timeout') || e.includes('timed out')) return 'Timeout';
+        if (e.includes('econnrefused') || e.includes('connection refused')) return 'Connection refused';
+        if (e.includes('navigation') || e.includes('goto')) return 'Navigation failed';
+        if (e.includes('selector') || e.includes('locator')) return 'Element not found';
+        if (e.includes('login') || e.includes('auth') || e.includes('session')) return 'Auth failed';
+        if (e.includes('captcha') || e.includes('2fa')) return '2FA/Captcha';
+        if (e.includes('network') || e.includes('dns') || e.includes('fetch')) return 'Network error';
+        if (e.includes('certificate') || e.includes('ssl')) return 'SSL error';
+        if (e.includes('403') || e.includes('forbidden')) return 'Forbidden';
+        if (e.includes('404') || e.includes('not found')) return 'Not found';
+        if (e.includes('500') || e.includes('server error')) return 'Server error';
+        if (e.includes('rate') || e.includes('limit') || e.includes('throttl')) return 'Rate limited';
+        const short = String(error).split('\n')[0].substring(0, 60);
+        return short.length < String(error).length ? short + '...' : short;
+    }
+
+    async function copyScraperError(provider, result) {
+        const debugText = `
+# eckWMS Scraper Error — ${provider}
+You are a technical assistant for eckWMS (warehouse management system). This is an error from the Playwright-based scraper service.
+
+## System
+- eckWMS: Rust (axum) + SvelteKit + PostgreSQL
+- Scraper: Node.js + Playwright on port 3211, proxied at /E/S/*
+- Providers: OPAL (courier), DHL (shipping), Zoho Desk (tickets), Exact Online (ERP)
+
+## Error
+**Provider:** ${provider}
+**Short:** ${summarizeError(result.error)}
+**Full message:** ${result.error || 'No error message'}
+
+## Result JSON
+${JSON.stringify(result, null, 2)}
+
+---
+Analyze this error and suggest a fix. Be concise.
+`.trim();
+
+        try {
+            await navigator.clipboard.writeText(debugText);
+            toastStore.add('Error copied for AI analysis', 'success');
+        } catch (err) {
+            toastStore.add('Failed to copy: ' + err.message, 'error');
+        }
+    }
+
     async function copyDebugInfo(sync) {
         const debugText = `
-# Sync Error Debug Info
-Provider: ${sync.provider}
-Time: ${formatDate(sync.startedAt)}
-Status: ${sync.status}
-Duration: ${sync.duration ? (sync.duration / 1000).toFixed(1) + "s" : "N/A"}
+# eckWMS Sync Error — ${sync.provider}
+You are a technical assistant for eckWMS (warehouse management system). This is an error from a scheduled sync operation.
+
+## System
+- eckWMS: Rust (axum) + SvelteKit + PostgreSQL
+- Scraper: Node.js + Playwright on port 3211
+- Providers: OPAL (courier), DHL (shipping)
+
+## Error
+**Provider:** ${sync.provider}
+**Time:** ${formatDate(sync.startedAt)}
+**Status:** ${sync.status}
+**Duration:** ${sync.duration ? (sync.duration / 1000).toFixed(1) + "s" : "N/A"}
+**Short:** ${summarizeError(sync.errorDetail)}
 
 ## Error Message
 ${sync.errorDetail || "No error detail"}
@@ -307,7 +365,7 @@ ${sync.debugInfo ? JSON.stringify(sync.debugInfo, null, 2) : "No debug info avai
 - Errors: ${sync.errors || 0}
 
 ---
-Copy this to ChatGPT/Claude for analysis
+Analyze this error and suggest a fix. Be concise.
 `.trim();
 
         try {
@@ -419,7 +477,11 @@ Copy this to ChatGPT/Claude for analysis
                             {#if opalResult.success}
                                 <div class="result-summary">✅ {opalResult.count} orders fetched in {opalResult.duration}s</div>
                             {:else}
-                                <div class="result-summary error">❌ {opalResult.error}</div>
+                                <div class="error-row">
+                                    <span class="error-badge">❌ {summarizeError(opalResult.error)}</span>
+                                    <button class="action-btn copy-btn" on:click={() => copyScraperError('OPAL', opalResult)}>🤖 Copy for AI</button>
+                                </div>
+                                <div class="error-detail">{opalResult.error}</div>
                             {/if}
                             {#if opalResult.orders?.length}
                                 <button class="toggle-json" on:click={() => opalJsonOpen = !opalJsonOpen}>
@@ -466,7 +528,11 @@ Copy this to ChatGPT/Claude for analysis
                             {#if dhlResult.success}
                                 <div class="result-summary">✅ {dhlResult.count} shipments fetched in {dhlResult.duration}s</div>
                             {:else}
-                                <div class="result-summary error">❌ {dhlResult.error}</div>
+                                <div class="error-row">
+                                    <span class="error-badge">❌ {summarizeError(dhlResult.error)}</span>
+                                    <button class="action-btn copy-btn" on:click={() => copyScraperError('DHL', dhlResult)}>🤖 Copy for AI</button>
+                                </div>
+                                <div class="error-detail">{dhlResult.error}</div>
                             {/if}
                             {#if dhlResult.shipments?.length}
                                 <button class="toggle-json" on:click={() => dhlJsonOpen = !dhlJsonOpen}>
@@ -505,7 +571,11 @@ Copy this to ChatGPT/Claude for analysis
                             {#if exactResult.success}
                                 <div class="result-summary">✅ Done in {exactResult.duration}s</div>
                             {:else}
-                                <div class="result-summary error">❌ {exactResult.error}</div>
+                                <div class="error-row">
+                                    <span class="error-badge">❌ {summarizeError(exactResult.error)}</span>
+                                    <button class="action-btn copy-btn" on:click={() => copyScraperError('Exact Online', exactResult)}>🤖 Copy for AI</button>
+                                </div>
+                                <div class="error-detail">{exactResult.error}</div>
                             {/if}
                             {#if exactResult.data}
                                 <button class="toggle-json" on:click={() => exactJsonOpen = !exactJsonOpen}>
@@ -553,7 +623,11 @@ Copy this to ChatGPT/Claude for analysis
                             {#if zohoResult.success}
                                 <div class="result-summary">✅ {zohoResult.count ?? zohoResult.tickets?.length ?? 0} tickets in {zohoResult.duration}s</div>
                             {:else}
-                                <div class="result-summary error">❌ {zohoResult.error}</div>
+                                <div class="error-row">
+                                    <span class="error-badge">❌ {summarizeError(zohoResult.error)}</span>
+                                    <button class="action-btn copy-btn" on:click={() => copyScraperError('Zoho Desk', zohoResult)}>🤖 Copy for AI</button>
+                                </div>
+                                <div class="error-detail">{zohoResult.error}</div>
                             {/if}
                             {#if zohoResult.tickets?.length}
                                 <button class="toggle-json" on:click={() => zohoJsonOpen = !zohoJsonOpen}>
@@ -605,7 +679,11 @@ Copy this to ChatGPT/Claude for analysis
                                 {#if zohoThreadResult.success}
                                     <div class="result-summary">✅ {zohoThreadResult.count} threads in {zohoThreadResult.duration}s</div>
                                 {:else}
-                                    <div class="result-summary error">❌ {zohoThreadResult.error}</div>
+                                    <div class="error-row">
+                                        <span class="error-badge">❌ {summarizeError(zohoThreadResult.error)}</span>
+                                        <button class="action-btn copy-btn" on:click={() => copyScraperError('Zoho Threads', zohoThreadResult)}>🤖 Copy for AI</button>
+                                    </div>
+                                    <div class="error-detail">{zohoThreadResult.error}</div>
                                 {/if}
                                 {#if zohoThreadResult.threads?.length}
                                     <button class="toggle-json" on:click={() => zohoThreadJsonOpen = !zohoThreadJsonOpen}>
@@ -923,4 +1001,8 @@ Copy this to ChatGPT/Claude for analysis
     .import-errors { display: flex; flex-direction: column; gap: 0.25rem; }
     .import-error-line { font-size: 0.8rem; color: #fbbf24; background: rgba(251,191,36,0.07); border-radius: 4px; padding: 0.3rem 0.6rem; }
     .import-ids { font-size: 0.75rem; color: #555; font-family: monospace; word-break: break-all; }
+
+    .error-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+    .error-badge { font-size: 0.9rem; font-weight: 700; color: #ff6b6b; white-space: nowrap; }
+    .error-detail { font-size: 0.78rem; color: #aa6b6b; font-family: monospace; background: #1a1010; border-left: 3px solid #ef4444; padding: 0.5rem 0.75rem; border-radius: 4px; white-space: pre-wrap; word-break: break-word; max-height: 120px; overflow-y: auto; }
 </style>
