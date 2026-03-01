@@ -6,6 +6,94 @@ const app = express();
 
 app.use(express.json());
 
+// ─── Fix Windows-1252 Mojibake ──────────────────────────────────────────────
+// Zoho sometimes returns UTF-8 content that was double-encoded: UTF-8 bytes
+// decoded as Windows-1252, then re-encoded as UTF-8. The result is mixed content:
+// some chars are correct Unicode (e.g. „ " –), others are mojibake (Ã¶ instead of ö).
+// This function scans for mojibake sequences and fixes them in-place, preserving
+// already-correct Unicode characters.
+const CP1252_TO_BYTE = {};  // Unicode codepoint → CP1252 byte value
+(() => {
+    // 0x00-0x7F and 0xA0-0xFF: same as Unicode codepoint
+    for (let i = 0; i < 0x80; i++) CP1252_TO_BYTE[i] = i;
+    for (let i = 0xA0; i <= 0xFF; i++) CP1252_TO_BYTE[i] = i;
+    // 0x80-0x9F: CP1252-specific mappings (Unicode codepoint → original byte)
+    const map = [[0x20AC,0x80],[0x201A,0x82],[0x0192,0x83],[0x201E,0x84],[0x2026,0x85],
+        [0x2020,0x86],[0x2021,0x87],[0x02C6,0x88],[0x2030,0x89],[0x0160,0x8A],
+        [0x2039,0x8B],[0x0152,0x8C],[0x017D,0x8E],[0x2018,0x91],[0x2019,0x92],
+        [0x201C,0x93],[0x201D,0x94],[0x2022,0x95],[0x2013,0x96],[0x2014,0x97],
+        [0x02DC,0x98],[0x2122,0x99],[0x0161,0x9A],[0x203A,0x9B],[0x0153,0x9C],
+        [0x017E,0x9E],[0x0178,0x9F]];
+    for (const [uni, byte] of map) CP1252_TO_BYTE[uni] = byte;
+})();
+
+function charToByte(ch) {
+    const code = ch.codePointAt(0);
+    return CP1252_TO_BYTE[code] !== undefined ? CP1252_TO_BYTE[code] : -1;
+}
+
+function fixMojibake(str) {
+    if (!str || typeof str !== 'string') return str;
+    // Quick check: skip if no high-byte Latin chars that start UTF-8 sequences
+    if (!/[\xC2-\xF4]/.test(str)) return str;
+
+    let result = '';
+    let i = 0;
+    const len = str.length;
+
+    while (i < len) {
+        const b0 = charToByte(str[i]);
+
+        // Try to match a 2-byte UTF-8 mojibake sequence: lead byte C2-DF + continuation 80-BF
+        if (b0 >= 0xC2 && b0 <= 0xDF && i + 1 < len) {
+            const b1 = charToByte(str[i + 1]);
+            if (b1 >= 0x80 && b1 <= 0xBF) {
+                const decoded = Buffer.from([b0, b1]).toString('utf8');
+                if (!decoded.includes('\uFFFD')) {
+                    result += decoded;
+                    i += 2;
+                    continue;
+                }
+            }
+        }
+
+        // Try to match a 3-byte UTF-8 mojibake sequence: E0-EF + 80-BF + 80-BF
+        if (b0 >= 0xE0 && b0 <= 0xEF && i + 2 < len) {
+            const b1 = charToByte(str[i + 1]);
+            const b2 = charToByte(str[i + 2]);
+            if (b1 >= 0x80 && b1 <= 0xBF && b2 >= 0x80 && b2 <= 0xBF) {
+                const decoded = Buffer.from([b0, b1, b2]).toString('utf8');
+                if (!decoded.includes('\uFFFD')) {
+                    result += decoded;
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+
+        // Try to match a 4-byte UTF-8 mojibake sequence: F0-F4 + 80-BF + 80-BF + 80-BF
+        if (b0 >= 0xF0 && b0 <= 0xF4 && i + 3 < len) {
+            const b1 = charToByte(str[i + 1]);
+            const b2 = charToByte(str[i + 2]);
+            const b3 = charToByte(str[i + 3]);
+            if (b1 >= 0x80 && b1 <= 0xBF && b2 >= 0x80 && b2 <= 0xBF && b3 >= 0x80 && b3 <= 0xBF) {
+                const decoded = Buffer.from([b0, b1, b2, b3]).toString('utf8');
+                if (!decoded.includes('\uFFFD')) {
+                    result += decoded;
+                    i += 4;
+                    continue;
+                }
+            }
+        }
+
+        // Not a mojibake sequence — keep original char
+        result += str[i];
+        i++;
+    }
+
+    return result;
+}
+
 // Helper to launch browser, run logic, and close
 // Uses persistent user data directory to preserve cookies/sessions across requests.
 // Pass ?debug=1 in the request body or query to run in headed (visible) mode with slowMo.
@@ -39,7 +127,7 @@ async function runScraper(req, res, logicFn) {
             acceptDownloads: true
         });
         page = await context.newPage();
-        const result = await logicFn(page, req.body);
+        const result = await logicFn(page, req.body, context);
         res.json(result);
     } catch (error) {
         console.error("Scraper Error:", error);
@@ -822,8 +910,11 @@ app.post('/api/zoho/ticket-threads', (req, res) => {
         for (const thread of threads) {
             const fullThread = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}/threads/${thread.id}`);
             if (!fullThread.error && fullThread.content) {
-                thread.content = fullThread.content;
-                thread.summary = fullThread.summary || thread.summary;
+                thread.content = fixMojibake(fullThread.content);
+                thread.summary = fixMojibake(fullThread.summary || thread.summary);
+            } else {
+                thread.content = fixMojibake(thread.content);
+                thread.summary = fixMojibake(thread.summary);
             }
             // Attachments: try from individual thread response, then ticket-level API
             let attArr = [];
@@ -892,8 +983,11 @@ app.post('/api/zoho/ticket-threads-bulk', (req, res) => {
                 for (const thread of threads) {
                     const fullThread = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}/threads/${thread.id}`);
                     if (!fullThread.error && fullThread.content) {
-                        thread.content = fullThread.content;
-                        thread.summary = fullThread.summary || thread.summary;
+                        thread.content = fixMojibake(fullThread.content);
+                        thread.summary = fixMojibake(fullThread.summary || thread.summary);
+                    } else {
+                        thread.content = fixMojibake(thread.content);
+                        thread.summary = fixMojibake(thread.summary);
                     }
                     // Attachments from individual thread response
                     let attArr = [];
@@ -921,7 +1015,7 @@ app.post('/api/zoho/ticket-threads-bulk', (req, res) => {
 // Takes a Zoho attachment href, logs in, fetches the file buffer via page.evaluate,
 // and returns it as base64 + mimeType so the Rust server can save it to CAS.
 app.post('/api/zoho/download-attachment', (req, res) => {
-    runScraper(req, res, async (page, data) => {
+    runScraper(req, res, async (page, data, context) => {
         const username  = data.username || (data._from_env ? process.env.ZOHO_EMAIL    : '') || '';
         const password  = data.password || (data._from_env ? process.env.ZOHO_PASSWORD : '') || '';
         const targetUrl = data.url || process.env.ZOHO_URL || 'https://desk.inbodysupport.eu/agent/';
@@ -939,29 +1033,23 @@ app.post('/api/zoho/download-attachment', (req, res) => {
             await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
         }
 
-        // Use browser session cookies to fetch the file buffer
-        // Append orgId (required by Zoho API) just like zohoApi() does
+        // Use Playwright's native API context to download — avoids DOM memory limits
+        // and handles large binary files safely in Node.js
         const sep = href.includes('?') ? '&' : '?';
         const fullHref = href + sep + 'orgId=20078282365';
-        const result = await page.evaluate(async ([url]) => {
-            const resp = await fetch(url, { credentials: 'include' });
-            if (!resp.ok) return { error: resp.status, message: await resp.text().catch(() => '') };
-            const mimeType = resp.headers.get('content-type') || 'application/octet-stream';
-            const buffer   = await resp.arrayBuffer();
-            // Convert ArrayBuffer → base64 in chunks to avoid call-stack limits
-            const bytes = new Uint8Array(buffer);
-            let binary = '';
-            const chunk = 8192;
-            for (let i = 0; i < bytes.length; i += chunk) {
-                binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-            }
-            return { base64: btoa(binary), mimeType, size: bytes.length };
-        }, [fullHref]);
+        const apiResp = await context.request.get(fullHref);
 
-        if (result.error) throw new Error(`Download failed HTTP ${result.error}: ${result.message}`);
+        if (!apiResp.ok()) {
+            const body = await apiResp.text().catch(() => '');
+            throw new Error(`Download failed HTTP ${apiResp.status()}: ${body}`);
+        }
 
-        console.log(`[Zoho] Downloaded attachment: ${fileName} (${result.mimeType}, ${result.size} bytes)`);
-        return { success: true, base64: result.base64, mimeType: result.mimeType, fileName };
+        const mimeType = apiResp.headers()['content-type'] || 'application/octet-stream';
+        const buffer = await apiResp.body();
+        const base64 = buffer.toString('base64');
+
+        console.log(`[Zoho] Downloaded attachment: ${fileName} (${mimeType}, ${buffer.length} bytes)`);
+        return { success: true, base64, mimeType, fileName };
     });
 });
 

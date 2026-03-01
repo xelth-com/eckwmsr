@@ -1,10 +1,18 @@
-# Report: Fix Zoho Desk Attachment Downloads
+# Report: Fix Zoho Attachment Downloads & Unicode Mojibake
 **Executor:** Claude Opus 4.6
 **Status:** SUCCESS
-**Changes:**
-- Fixed `scraper/server.js` download-attachment endpoint: added `orgId=20078282365` query parameter to Zoho API fetch (root cause was 422 UNPROCESSABLE_ENTITY, not OOM)
-- Fixed `scraper/server.js` attachment extraction: use `fullThread.attachments` from individual thread API response instead of broken `/threads/{id}/attachments` endpoint (404)
-- Fixed `scraper/server.js` bulk endpoint: same attachment extraction fix
-- Fixed `src/handlers/support.rs` upsert path: previously skipped attachment download on thread update (only downloaded on first insert). Now downloads attachments during upsert too
-- Fixed `src/handlers/support.rs` AttachmentRef: added `#[serde(alias = "name")]` so Zoho's `name` field maps to `file_name`
-- Verified end-to-end: ticket 53451000033454145 imported with 4 threads (31KB, 18KB, 8KB, 389B content) and 3 PDF attachments (126KB, 1.8MB, 1.7MB)
+
+## Task 1: Fix Attachment Downloads
+- Rewrote `scraper/server.js` download-attachment endpoint: replaced `page.evaluate(fetch())` with Playwright's native `context.request.get()` — handles large binary files safely in Node.js, avoids DOM memory limits
+- Added `context` parameter to `runScraper()` callback so endpoints can use native API context
+- Previous fix (orgId) preserved: Zoho API requires `orgId=20078282365` on all requests
+
+## Task 2: Fix Unicode Mojibake
+- **Root cause**: The scraper returns correct UTF-8 — the mojibake was a data artifact from previous imports that went through Python on Windows (cp1252 stdin encoding corrupted the UTF-8 bytes)
+- Added `fixMojibake()` function to `scraper/server.js` as a safety net: scans for Windows-1252 double-encoding patterns (e.g. Ã¶→ö, â€ž→„) and fixes them in-place, preserving already-correct Unicode chars
+- Applied to both single-ticket and bulk thread fetch endpoints
+- Re-imported ticket 53451000033454145 with correct UTF-8 — all German chars now display correctly (ö, ü, ä, ß, „, ", –)
+
+## Files Changed
+- `scraper/server.js`: Added fixMojibake(), rewrote download-attachment to use context.request.get(), passed context to runScraper callback
+- `src/handlers/support.rs`: Upsert path now downloads attachments, added serde alias for AttachmentRef
