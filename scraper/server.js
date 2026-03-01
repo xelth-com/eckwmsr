@@ -825,8 +825,28 @@ app.post('/api/zoho/ticket-threads', (req, res) => {
                 thread.content = fullThread.content;
                 thread.summary = fullThread.summary || thread.summary;
             }
-            const attRes = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}/threads/${thread.id}/attachments`);
-            thread.attachments = attRes.error ? [] : (attRes.data || []);
+            // Attachments: try from individual thread response, then ticket-level API
+            let attArr = [];
+            if (thread.hasAttach || parseInt(thread.attachmentCount) > 0) {
+                // Individual thread response may include attachments directly
+                if (!fullThread.error && Array.isArray(fullThread.attachments) && fullThread.attachments.length > 0) {
+                    attArr = fullThread.attachments;
+                    console.log(`[Zoho] Thread ${thread.id}: got ${attArr.length} attachments from thread response`);
+                }
+                // Fallback: ticket-level attachments endpoint
+                if (attArr.length === 0) {
+                    const ticketAttRes = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}/attachments`);
+                    if (!ticketAttRes.error) {
+                        attArr = Array.isArray(ticketAttRes.data) ? ticketAttRes.data : (Array.isArray(ticketAttRes) ? ticketAttRes : []);
+                    }
+                    if (attArr.length > 0) console.log(`[Zoho] Thread ${thread.id}: got ${attArr.length} attachments from ticket API`);
+                }
+                if (attArr.length === 0) {
+                    // Log full individual thread response keys for debugging
+                    console.log(`[Zoho] Thread ${thread.id}: no attachments found. fullThread keys:`, !fullThread.error ? Object.keys(fullThread) : 'error');
+                }
+            }
+            thread.attachments = attArr;
         }
 
         console.log(`[Zoho] Fetched ${threads.length} threads for ticket ${ticketId}`);
@@ -875,8 +895,14 @@ app.post('/api/zoho/ticket-threads-bulk', (req, res) => {
                         thread.content = fullThread.content;
                         thread.summary = fullThread.summary || thread.summary;
                     }
-                    const attRes = await zohoApi(page, `${ZOHO_BASE}/tickets/${ticketId}/threads/${thread.id}/attachments`);
-                    thread.attachments = attRes.error ? [] : (attRes.data || []);
+                    // Attachments from individual thread response
+                    let attArr = [];
+                    if (thread.hasAttach || parseInt(thread.attachmentCount) > 0) {
+                        if (!fullThread.error && Array.isArray(fullThread.attachments) && fullThread.attachments.length > 0) {
+                            attArr = fullThread.attachments;
+                        }
+                    }
+                    thread.attachments = attArr;
                 }
 
                 console.log(`[Zoho] Bulk: ${threads.length} threads for ticket ${ticketId} (${i+1}/${ticketIds.length})`);
@@ -907,14 +933,18 @@ app.post('/api/zoho/download-attachment', (req, res) => {
 
         await zohoLogin(page, targetUrl, username, password);
 
+        // Ensure we're on the Zoho Desk domain so cookies are sent
         if (!page.url().includes('desk.inbodysupport.eu')) {
             await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
             await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
         }
 
         // Use browser session cookies to fetch the file buffer
-        const result = await page.evaluate(async ([href]) => {
-            const resp = await fetch(href, { credentials: 'include' });
+        // Append orgId (required by Zoho API) just like zohoApi() does
+        const sep = href.includes('?') ? '&' : '?';
+        const fullHref = href + sep + 'orgId=20078282365';
+        const result = await page.evaluate(async ([url]) => {
+            const resp = await fetch(url, { credentials: 'include' });
             if (!resp.ok) return { error: resp.status, message: await resp.text().catch(() => '') };
             const mimeType = resp.headers.get('content-type') || 'application/octet-stream';
             const buffer   = await resp.arrayBuffer();
@@ -926,7 +956,7 @@ app.post('/api/zoho/download-attachment', (req, res) => {
                 binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
             }
             return { base64: btoa(binary), mimeType, size: bytes.length };
-        }, [href]);
+        }, [fullHref]);
 
         if (result.error) throw new Error(`Download failed HTTP ${result.error}: ${result.message}`);
 

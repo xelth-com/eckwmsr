@@ -239,7 +239,7 @@ pub struct ThreadData {
 
 #[derive(Deserialize)]
 pub struct AttachmentRef {
-    #[serde(rename = "fileName")]
+    #[serde(alias = "fileName", alias = "name")]
     pub file_name: String,
     pub href: String,
 }
@@ -267,8 +267,24 @@ pub async fn import_thread(
     let mut imported_ids: Vec<String> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
 
+    // Pre-load existing documents for this ticket to detect duplicates
+    let existing_docs = document::Entity::find()
+        .filter(document::Column::Type.eq("support_thread"))
+        .filter(document::Column::DeletedAt.is_null())
+        .all(&state.db)
+        .await
+        .unwrap_or_default();
+
+    let existing_map: HashMap<String, document::Model> = existing_docs
+        .into_iter()
+        .filter(|d| d.payload["ticketId"].as_str() == Some(req.ticket_id.as_str()))
+        .map(|d| {
+            let tid = d.payload["threadId"].as_str().unwrap_or("").to_string();
+            (tid, d)
+        })
+        .collect();
+
     for thread in &req.threads {
-        let doc_id = Uuid::new_v4();
         let now = Utc::now();
 
         let payload = serde_json::json!({
@@ -281,6 +297,42 @@ pub async fn import_thread(
             "ticket":      req.ticket,
         });
 
+        // Upsert: update existing document if threadId already imported
+        if let Some(existing) = existing_map.get(&thread.id) {
+            let doc_id_str = existing.id.to_string();
+            let mut active: document::ActiveModel = existing.clone().into();
+            active.payload = Set(payload);
+            active.updated_at = Set(now);
+            match active.update(&state.db).await {
+                Ok(doc) => {
+                    info!("[Support] Updated thread {} → document {}", thread.id, doc.id);
+                    imported_ids.push(doc.id.to_string());
+                }
+                Err(e) => {
+                    let msg = format!("Failed to update thread '{}': {}", thread.id, e);
+                    warn!("[Support] {}", msg);
+                    errors.push(msg);
+                    continue;
+                }
+            }
+            // Download attachments for updated documents too
+            if let Some(ref atts) = thread.attachments {
+                for att_ref in atts {
+                    match download_and_save_attachment(
+                        &state, &att_ref.href, &att_ref.file_name, &doc_id_str,
+                    ).await {
+                        Ok(_) => info!("[Support] Saved attachment '{}' for document {}", att_ref.file_name, doc_id_str),
+                        Err(e) => {
+                            warn!("[Support] Attachment '{}' failed: {}", att_ref.file_name, e);
+                            errors.push(format!("Attachment '{}' failed: {}", att_ref.file_name, e));
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+
+        let doc_id = Uuid::new_v4();
         let new_doc = document::ActiveModel {
             id: Set(doc_id),
             r#type: Set("support_thread".to_string()),
