@@ -1,6 +1,13 @@
 # Development Journal
 
 
+## 2026-03-02 — feat(repair): Auto-create Repair Order on PDA slot bind
+
+- Added `device_bound` event trigger in Android `MainScreenViewModel` when a repair slot is bound to a device barcode
+- Added Rust backend interceptor in `handlers/repair.rs` for `device_bound` event type
+- Added `RepairService::process_device_bind()` in `services/repair.rs` — checks for existing active orders (not completed/cancelled) by serial number, creates a new pending `repair` order if none exist
+- Order number format: `REP-YYYYMMDD-XXXX` (random suffix)
+
 
 
 ## 2026-03-01 — Agent Report

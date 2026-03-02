@@ -101,6 +101,17 @@ pub async fn handle_repair_event(
         });
     }
 
+    // Intercept device_bound events (auto-create Repair Order)
+    if payload.event_type == "device_bound" {
+        let state_clone = state.clone();
+        let target_device_id = payload.target_device_id.clone();
+        tokio::spawn(async move {
+            if let Err(e) = RepairService::process_device_bind(state_clone, target_device_id).await {
+                error!("Repair Service Error (device_bound): {}", e);
+            }
+        });
+    }
+
     // Intercept inventory count_submit
     if payload.event_type == "count_submit" && doc_type == "inventory_count" {
         let discrepancies = process_inventory_count(

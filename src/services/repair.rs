@@ -1,7 +1,7 @@
 use crate::db::AppState;
-use crate::models::{device_intake, product_alias};
+use crate::models::{device_intake, order, product_alias};
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, Set};
 use std::sync::Arc;
 use tracing::{error, info};
 
@@ -126,6 +126,70 @@ impl RepairService {
 
         alias.insert(&state.db).await?;
         info!("Alias created: {} -> {}", external, internal);
+        Ok(())
+    }
+
+    /// Process device_bound handles the auto-creation of a Repair Order when a PDA binds a slot
+    pub async fn process_device_bind(
+        state: Arc<AppState>,
+        serial_number: String,
+    ) -> Result<(), anyhow::Error> {
+        info!("RepairService: Processing device bind for {}", serial_number);
+
+        // Check if an active order already exists for this serial number
+        let existing_order = order::Entity::find()
+            .filter(order::Column::SerialNumber.eq(&serial_number))
+            .filter(
+                Condition::all()
+                    .add(order::Column::Status.ne("completed"))
+                    .add(order::Column::Status.ne("cancelled"))
+            )
+            .one(&state.db)
+            .await?;
+
+        if let Some(existing) = existing_order {
+            info!("Active repair order already exists for {} (Order #{})", serial_number, existing.order_number);
+            return Ok(());
+        }
+
+        // Generate new order number
+        let order_number = format!(
+            "REP-{}-{:04}",
+            Utc::now().format("%Y%m%d"),
+            rand::random::<u16>()
+        );
+
+        // Create new repair order (all NOT NULL fields must be set)
+        let new_order = order::ActiveModel {
+            order_number: Set(order_number.clone()),
+            order_type: Set("repair".to_string()),
+            serial_number: Set(serial_number.clone()),
+            customer_name: Set("PDA Intake".to_string()),
+            customer_email: Set(String::new()),
+            customer_phone: Set(String::new()),
+            product_sku: Set("UNKNOWN".to_string()),
+            product_name: Set(String::new()),
+            issue_description: Set("Auto-created from PDA repair slot bind".to_string()),
+            diagnosis_notes: Set(String::new()),
+            status: Set("pending".to_string()),
+            priority: Set("normal".to_string()),
+            repair_notes: Set(String::new()),
+            parts_used: Set(serde_json::json!([])),
+            labor_hours: Set(0.0),
+            total_cost: Set(0.0),
+            resolution: Set(String::new()),
+            notes: Set(String::new()),
+            metadata: Set(serde_json::json!({})),
+            rma_reason: Set(String::new()),
+            is_refund_requested: Set(false),
+            created_at: Set(Utc::now()),
+            updated_at: Set(Utc::now()),
+            ..Default::default()
+        };
+
+        let inserted = new_order.insert(&state.db).await?;
+        info!("Created new auto-repair order #{} (ID: {}) for serial {}", order_number, inserted.id, serial_number);
+
         Ok(())
     }
 }
