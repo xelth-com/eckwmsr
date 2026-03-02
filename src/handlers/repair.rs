@@ -87,6 +87,16 @@ pub async fn handle_repair_event(
         ));
     }
 
+    // Push document to mesh peers
+    if let Ok(Some(dm)) = document::Entity::find_by_id(doc_id).one(&state.db).await {
+        let payload = crate::handlers::mesh_sync::PushPayload {
+            products: vec![], locations: vec![], shipments: vec![], users: vec![],
+            orders: vec![], documents: vec![crate::handlers::mesh_sync::SyncableDocument::from(dm)],
+            file_resources: vec![], attachments: vec![],
+        };
+        crate::handlers::mesh_sync::push_to_all_peers(state.clone(), "document", &doc_id.to_string(), payload);
+    }
+
     // Intercept intake_save events
     if payload.event_type == "intake_save" {
         let state_clone = state.clone();

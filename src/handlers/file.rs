@@ -105,6 +105,8 @@ pub async fn handle_image_upload(
 
     // --- AUTO-LINKING LOGIC (Smart Bind) ---
     let barcode_data = barcode_data.trim();
+    let mut sync_attachments: Vec<attachment::Model> = vec![];
+
     if !barcode_data.is_empty() {
         let (res_model, res_id) = resolve_barcode_to_entity(barcode_data);
 
@@ -122,12 +124,25 @@ pub async fn handle_image_upload(
                 deleted_at: Set(None),
             };
 
-            if let Err(e) = new_attachment.insert(&state.db).await {
-                warn!("Failed to auto-link attachment: {}", e);
-            } else {
-                info!("Linked file {} to {}:{}", file_res.id, res_model, res_id);
+            match new_attachment.insert(&state.db).await {
+                Ok(inserted_att) => {
+                    info!("Linked file {} to {}:{}", file_res.id, res_model, res_id);
+                    sync_attachments.push(inserted_att);
+                }
+                Err(e) => warn!("Failed to auto-link attachment: {}", e),
             }
         }
+    }
+
+    // Push file_resource + attachment to mesh peers
+    {
+        let payload = crate::handlers::mesh_sync::PushPayload {
+            products: vec![], locations: vec![], shipments: vec![], users: vec![],
+            orders: vec![], documents: vec![],
+            file_resources: vec![crate::handlers::mesh_sync::SyncableFileResource::from(file_res.clone())],
+            attachments: sync_attachments,
+        };
+        crate::handlers::mesh_sync::push_to_all_peers(state.clone(), "file_resource", &file_res.id.to_string(), payload);
     }
 
     Ok(Json(serde_json::json!({

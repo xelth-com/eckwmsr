@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-use crate::handlers::mesh_sync::{PullRequest, PullResponse, PushPayload, SyncableUser};
-use crate::models::{location, product, stock_picking_delivery};
+use crate::handlers::mesh_sync::{PullRequest, PullResponse, PushPayload, SyncableUser, SyncableOrder, SyncableDocument, SyncableFileResource};
+use crate::models::{attachment, location, product, stock_picking_delivery};
 use crate::sync::merkle_tree::{MerkleNode, MerkleRequest};
 
 /// HTTP client for communicating with peer mesh nodes
@@ -78,6 +78,10 @@ impl MeshClient {
         locations: Vec<location::Model>,
         shipments: Vec<stock_picking_delivery::Model>,
         users: Vec<SyncableUser>,
+        orders: Vec<SyncableOrder>,
+        documents: Vec<SyncableDocument>,
+        file_resources: Vec<SyncableFileResource>,
+        attachments: Vec<attachment::Model>,
     ) -> Result<()> {
         let url = format!("{}/mesh/push", self.base_url);
         let payload = PushPayload {
@@ -85,6 +89,10 @@ impl MeshClient {
             locations,
             shipments,
             users,
+            orders,
+            documents,
+            file_resources,
+            attachments,
         };
 
         let resp = self.client.post(&url).json(&payload).send().await?;
@@ -92,5 +100,21 @@ impl MeshClient {
             return Err(anyhow::anyhow!("Remote push failed: {}", resp.status()));
         }
         Ok(())
+    }
+
+    /// Fetch full file content from a peer by CAS hash
+    pub async fn fetch_file(&self, hash: &str) -> Result<(Vec<u8>, String)> {
+        let url = format!("{}/mesh/file/{}", self.base_url, hash);
+        let resp = self.client.get(&url).send().await?;
+        if !resp.status().is_success() {
+            return Err(anyhow::anyhow!("Remote file fetch failed: {}", resp.status()));
+        }
+        let content_type = resp.headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("application/octet-stream")
+            .to_string();
+        let bytes = resp.bytes().await?.to_vec();
+        Ok((bytes, content_type))
     }
 }

@@ -348,11 +348,10 @@ async fn main() {
     }
     info!("Peer health check started (every 60s, mutual verification)");
 
-    // Startup sync: pull users from all known mesh peers (fire-and-forget)
+    // Startup sync: pull all entity types from known mesh peers (fire-and-forget)
     {
         let startup_sync_state = app_state.clone();
         tokio::spawn(async move {
-            // Small delay to let the server finish binding
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
             use sea_orm::EntityTrait;
             let nodes = crate::models::mesh_node::Entity::find()
@@ -360,28 +359,21 @@ async fn main() {
                 .await
                 .unwrap_or_default();
             for node in &nodes {
-                if node.base_url.is_empty() {
-                    continue;
-                }
-                match startup_sync_state
-                    .sync_engine
-                    .full_pull_from_peer(&node.base_url, "user")
-                    .await
-                {
-                    Ok(count) if count > 0 => {
-                        info!("Startup sync: pulled {} users from {}", count, node.instance_id);
-                        crate::db::cleanup_setup_if_real_users(
-                            &startup_sync_state.db,
-                            &startup_sync_state.setup_password,
-                        )
-                        .await;
+                if node.base_url.is_empty() { continue; }
+                for entity_type in &["user", "order", "document", "file_resource", "attachment"] {
+                    match startup_sync_state.sync_engine.full_pull_from_peer(&node.base_url, entity_type).await {
+                        Ok(count) if count > 0 => {
+                            info!("Startup sync: pulled {} {} from {}", count, entity_type, node.instance_id);
+                            if *entity_type == "user" {
+                                crate::db::cleanup_setup_if_real_users(
+                                    &startup_sync_state.db,
+                                    &startup_sync_state.setup_password,
+                                ).await;
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(e) => tracing::warn!("Startup sync {} with {} failed: {}", entity_type, node.instance_id, e),
                     }
-                    Ok(_) => {}
-                    Err(e) => tracing::warn!(
-                        "Startup sync with {} failed: {}",
-                        node.instance_id,
-                        e
-                    ),
                 }
             }
         });
@@ -490,7 +482,8 @@ async fn main() {
         .route("/ws", get(handlers::mesh_ws::mesh_ws_handler))
         .route("/merkle", post(handlers::mesh_sync::merkle_handler))
         .route("/pull", post(handlers::mesh_sync::pull_handler))
-        .route("/push", post(handlers::mesh_sync::push_handler));
+        .route("/push", post(handlers::mesh_sync::push_handler))
+        .route("/file/:hash", get(handlers::mesh_sync::serve_mesh_file));
 
     // Scraper proxy (JWT-protected): /S/* → http://127.0.0.1:3211/*
     // Auth check is done inside the handler via the middleware injected via route_layer below.

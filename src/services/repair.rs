@@ -4,6 +4,7 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, Set};
 use std::sync::Arc;
 use tracing::{error, info};
+use uuid::Uuid;
 
 pub struct RepairService;
 
@@ -161,6 +162,7 @@ impl RepairService {
 
         // Create new repair order (all NOT NULL fields must be set)
         let new_order = order::ActiveModel {
+            id: Set(Uuid::new_v4()),
             order_number: Set(order_number.clone()),
             order_type: Set("repair".to_string()),
             serial_number: Set(serial_number.clone()),
@@ -189,6 +191,14 @@ impl RepairService {
 
         let inserted = new_order.insert(&state.db).await?;
         info!("Created new auto-repair order #{} (ID: {}) for serial {}", order_number, inserted.id, serial_number);
+
+        // Push order to mesh peers
+        let payload = crate::handlers::mesh_sync::PushPayload {
+            products: vec![], locations: vec![], shipments: vec![], users: vec![],
+            orders: vec![crate::handlers::mesh_sync::SyncableOrder::from(inserted.clone())],
+            documents: vec![], file_resources: vec![], attachments: vec![],
+        };
+        crate::handlers::mesh_sync::push_to_all_peers(state.clone(), "order", &inserted.id.to_string(), payload);
 
         Ok(())
     }

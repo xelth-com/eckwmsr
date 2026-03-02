@@ -7,6 +7,7 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::Deserialize;
 use std::sync::Arc;
+use uuid::Uuid;
 
 use crate::{db::AppState, models::order};
 
@@ -38,7 +39,7 @@ pub async fn list_orders(
 /// GET /rma/:id — get a single order.
 pub async fn get_order(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<i32>,
+    Path(id): Path<Uuid>,
 ) -> Result<Json<order::Model>, StatusCode> {
     let o = order::Entity::find_by_id(id)
         .one(&state.db)
@@ -107,6 +108,7 @@ pub async fn create_order(
     };
 
     let am = order::ActiveModel {
+        id: Set(Uuid::new_v4()),
         order_number: Set(order_number),
         order_type: Set(order_type),
         customer_name: Set(payload.customer_name),
@@ -149,6 +151,16 @@ pub async fn create_order(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    // Push new order to mesh peers
+    {
+        let payload = crate::handlers::mesh_sync::PushPayload {
+            products: vec![], locations: vec![], shipments: vec![], users: vec![],
+            orders: vec![crate::handlers::mesh_sync::SyncableOrder::from(inserted.clone())],
+            documents: vec![], file_resources: vec![], attachments: vec![],
+        };
+        crate::handlers::mesh_sync::push_to_all_peers(state.clone(), "order", &inserted.id.to_string(), payload);
+    }
+
     Ok((StatusCode::CREATED, Json(inserted)))
 }
 
@@ -156,7 +168,7 @@ pub async fn create_order(
 /// Mirrors Go's `updateOrder` from `internal/handlers/rma.go`.
 pub async fn update_order(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<i32>,
+    Path(id): Path<Uuid>,
     Json(payload): Json<CreateOrderRequest>,
 ) -> Result<Json<order::Model>, (StatusCode, String)> {
     let existing = order::Entity::find_by_id(id)
@@ -194,13 +206,23 @@ pub async fn update_order(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    // Push updated order to mesh peers
+    {
+        let payload = crate::handlers::mesh_sync::PushPayload {
+            products: vec![], locations: vec![], shipments: vec![], users: vec![],
+            orders: vec![crate::handlers::mesh_sync::SyncableOrder::from(updated.clone())],
+            documents: vec![], file_resources: vec![], attachments: vec![],
+        };
+        crate::handlers::mesh_sync::push_to_all_peers(state.clone(), "order", &updated.id.to_string(), payload);
+    }
+
     Ok(Json(updated))
 }
 
 /// DELETE /rma/:id — soft delete an order.
 pub async fn delete_order(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<i32>,
+    Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     order::Entity::delete_by_id(id)
         .exec(&state.db)

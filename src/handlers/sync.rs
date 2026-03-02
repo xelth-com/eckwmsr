@@ -99,7 +99,7 @@ pub async fn sync_with_peers(
         if node.base_url.is_empty() {
             continue;
         }
-        for entity_type in &["user"] {
+        for entity_type in &["user", "order", "document", "file_resource", "attachment"] {
             match state
                 .sync_engine
                 .full_pull_from_peer(&node.base_url, entity_type)

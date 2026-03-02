@@ -7,8 +7,8 @@ use tracing::{error, info, warn};
 use std::collections::BTreeMap;
 
 use crate::models::sync_packet::EntityMetadata;
-use crate::models::{location, product, stock_picking_delivery, user};
-use crate::handlers::mesh_sync::SyncableUser;
+use crate::models::{attachment, document, file_resource, location, order, product, stock_picking_delivery, user};
+use crate::handlers::mesh_sync::{SyncableUser, SyncableOrder, SyncableDocument, SyncableFileResource};
 use crate::sync::mesh_client::MeshClient;
 use crate::sync::merkle_tree::{compare_trees, MerkleRequest, MerkleTreeService};
 use crate::sync::relay_client::RelayClient;
@@ -153,6 +153,113 @@ impl SyncEngine {
         Ok(())
     }
 
+    async fn upsert_order(&self, so: SyncableOrder) -> Result<(), DbErr> {
+        let am = order::ActiveModel {
+            id: sea_orm::Set(so.id),
+            order_number: sea_orm::Set(so.order_number),
+            order_type: sea_orm::Set(so.order_type),
+            customer_name: sea_orm::Set(so.customer_name),
+            customer_email: sea_orm::Set(so.customer_email),
+            customer_phone: sea_orm::Set(so.customer_phone),
+            item_id: sea_orm::Set(so.item_id),
+            product_sku: sea_orm::Set(so.product_sku),
+            product_name: sea_orm::Set(so.product_name),
+            serial_number: sea_orm::Set(so.serial_number),
+            purchase_date: sea_orm::Set(so.purchase_date),
+            issue_description: sea_orm::Set(so.issue_description),
+            diagnosis_notes: sea_orm::Set(so.diagnosis_notes),
+            assigned_to: sea_orm::Set(so.assigned_to),
+            status: sea_orm::Set(so.status),
+            priority: sea_orm::Set(so.priority),
+            repair_notes: sea_orm::Set(so.repair_notes),
+            parts_used: sea_orm::Set(so.parts_used),
+            labor_hours: sea_orm::Set(so.labor_hours),
+            total_cost: sea_orm::Set(so.total_cost),
+            resolution: sea_orm::Set(so.resolution),
+            notes: sea_orm::Set(so.notes),
+            metadata: sea_orm::Set(so.metadata),
+            rma_reason: sea_orm::Set(so.rma_reason),
+            is_refund_requested: sea_orm::Set(so.is_refund_requested),
+            started_at: sea_orm::Set(so.started_at),
+            completed_at: sea_orm::Set(so.completed_at),
+            created_at: sea_orm::Set(so.created_at),
+            updated_at: sea_orm::Set(so.updated_at),
+            deleted_at: sea_orm::Set(so.deleted_at),
+        };
+        order::Entity::insert(am)
+            .on_conflict(
+                OnConflict::column(order::Column::Id)
+                    .update_columns([
+                        order::Column::CustomerName, order::Column::CustomerEmail,
+                        order::Column::Status, order::Column::Priority,
+                        order::Column::RepairNotes, order::Column::DiagnosisNotes,
+                        order::Column::PartsUsed, order::Column::LaborHours,
+                        order::Column::TotalCost, order::Column::Resolution,
+                        order::Column::Notes, order::Column::Metadata,
+                        order::Column::AssignedTo, order::Column::CompletedAt,
+                        order::Column::UpdatedAt, order::Column::DeletedAt,
+                    ])
+                    .to_owned(),
+            )
+            .exec(&self.db)
+            .await?;
+        Ok(())
+    }
+
+    async fn upsert_document(&self, sd: SyncableDocument) -> Result<(), DbErr> {
+        let am = document::ActiveModel {
+            id: sea_orm::Set(sd.id),
+            r#type: sea_orm::Set(sd.r#type),
+            status: sea_orm::Set(sd.status),
+            payload: sea_orm::Set(sd.payload),
+            device_id: sea_orm::Set(sd.device_id),
+            user_id: sea_orm::Set(sd.user_id),
+            created_at: sea_orm::Set(sd.created_at),
+            updated_at: sea_orm::Set(sd.updated_at),
+            deleted_at: sea_orm::Set(sd.deleted_at),
+        };
+        let _ = document::Entity::insert(am)
+            .on_conflict(OnConflict::column(document::Column::Id).do_nothing().to_owned())
+            .exec(&self.db)
+            .await;
+        Ok(())
+    }
+
+    async fn upsert_file_resource(&self, sf: SyncableFileResource) -> Result<(), DbErr> {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        let avatar_bytes = sf.avatar_data_b64.and_then(|b64| STANDARD.decode(&b64).ok());
+        let am = file_resource::ActiveModel {
+            id: sea_orm::Set(sf.id),
+            hash: sea_orm::Set(sf.hash),
+            original_name: sea_orm::Set(sf.original_name),
+            mime_type: sea_orm::Set(sf.mime_type),
+            size_bytes: sea_orm::Set(sf.size_bytes),
+            width: sea_orm::Set(sf.width),
+            height: sea_orm::Set(sf.height),
+            avatar_data: sea_orm::Set(avatar_bytes),
+            storage_path: sea_orm::Set(sf.storage_path),
+            created_by_device: sea_orm::Set(sf.created_by_device),
+            context: sea_orm::Set(sf.context),
+            created_at: sea_orm::Set(sf.created_at),
+            updated_at: sea_orm::Set(sf.updated_at),
+            deleted_at: sea_orm::Set(sf.deleted_at),
+        };
+        let _ = file_resource::Entity::insert(am)
+            .on_conflict(OnConflict::column(file_resource::Column::Id).do_nothing().to_owned())
+            .exec(&self.db)
+            .await;
+        Ok(())
+    }
+
+    async fn upsert_attachment(&self, att: attachment::Model) -> Result<(), DbErr> {
+        let am = att.into_active_model();
+        let _ = attachment::Entity::insert(am)
+            .on_conflict(OnConflict::column(attachment::Column::Id).do_nothing().to_owned())
+            .exec(&self.db)
+            .await;
+        Ok(())
+    }
+
     // --- Relay pull ---
 
     pub async fn pull_and_apply(&self) -> Result<usize, String> {
@@ -183,6 +290,10 @@ impl SyncEngine {
                 "product" => self.process_product_packet(&packet).await,
                 "location" => self.process_location_packet(&packet).await,
                 "user" => self.process_user_packet(&packet).await,
+                "order" => self.process_order_packet(&packet).await,
+                "document" => self.process_document_packet(&packet).await,
+                "file_resource" => self.process_file_resource_packet(&packet).await,
+                "attachment" => self.process_attachment_packet(&packet).await,
                 other => {
                     warn!("Unsupported entity type from relay: {}", other);
                     continue;
@@ -244,6 +355,26 @@ impl SyncEngine {
             .map_err(|e| format!("upsert: {}", e))
     }
 
+    async fn process_order_packet(&self, packet: &crate::models::sync_packet::EncryptedSyncPacket) -> Result<(), String> {
+        let data: SyncableOrder = self.security.decrypt_packet(packet).map_err(|e| format!("decrypt: {}", e))?;
+        self.upsert_order(data).await.map_err(|e| format!("upsert: {}", e))
+    }
+
+    async fn process_document_packet(&self, packet: &crate::models::sync_packet::EncryptedSyncPacket) -> Result<(), String> {
+        let data: SyncableDocument = self.security.decrypt_packet(packet).map_err(|e| format!("decrypt: {}", e))?;
+        self.upsert_document(data).await.map_err(|e| format!("upsert: {}", e))
+    }
+
+    async fn process_file_resource_packet(&self, packet: &crate::models::sync_packet::EncryptedSyncPacket) -> Result<(), String> {
+        let data: SyncableFileResource = self.security.decrypt_packet(packet).map_err(|e| format!("decrypt: {}", e))?;
+        self.upsert_file_resource(data).await.map_err(|e| format!("upsert: {}", e))
+    }
+
+    async fn process_attachment_packet(&self, packet: &crate::models::sync_packet::EncryptedSyncPacket) -> Result<(), String> {
+        let data: attachment::Model = self.security.decrypt_packet(packet).map_err(|e| format!("decrypt: {}", e))?;
+        self.upsert_attachment(data).await.map_err(|e| format!("upsert: {}", e))
+    }
+
     // --- Relay push ---
 
     pub async fn push_entity<T: Serialize>(
@@ -302,7 +433,11 @@ impl SyncEngine {
         let count = response.users.len()
             + response.products.len()
             + response.locations.len()
-            + response.shipments.len();
+            + response.shipments.len()
+            + response.orders.len()
+            + response.documents.len()
+            + response.file_resources.len()
+            + response.attachments.len();
         self.apply_pull_response(response).await?;
         info!("SyncEngine: Full pull '{}' from {} — {} entities applied", entity_type, peer_url, count);
         Ok(count)
@@ -414,6 +549,19 @@ impl SyncEngine {
         for u in resp.users {
             self.upsert_user(u).await?;
         }
+        for o in resp.orders {
+            self.upsert_order(o).await?;
+        }
+        for d in resp.documents {
+            self.upsert_document(d).await?;
+        }
+        // File resources must be upserted before attachments (FK constraint)
+        for f in resp.file_resources {
+            self.upsert_file_resource(f).await?;
+        }
+        for a in resp.attachments {
+            self.upsert_attachment(a).await?;
+        }
         Ok(())
     }
 
@@ -429,11 +577,14 @@ impl SyncEngine {
         let mut locations = vec![];
         let mut shipments = vec![];
         let mut users = vec![];
+        let mut orders = vec![];
+        let mut documents = vec![];
+        let mut file_resources = vec![];
+        let mut attachments = vec![];
 
         match entity_type {
             "user" => {
-                let parsed_uuids: Vec<uuid::Uuid> =
-                    ids.iter().filter_map(|s| s.parse().ok()).collect();
+                let parsed_uuids: Vec<uuid::Uuid> = ids.iter().filter_map(|s| s.parse().ok()).collect();
                 if !parsed_uuids.is_empty() {
                     let user_models = user::Entity::find()
                         .filter(user::Column::Id.is_in(parsed_uuids))
@@ -443,30 +594,63 @@ impl SyncEngine {
                     users = user_models.into_iter().map(SyncableUser::from).collect();
                 }
             }
-            _ => {
-                let parsed_ids: Vec<i64> =
-                    ids.iter().filter_map(|s| s.parse().ok()).collect();
-                if parsed_ids.is_empty() {
-                    return Ok(());
+            "order" => {
+                let parsed_uuids: Vec<uuid::Uuid> = ids.iter().filter_map(|s| s.parse().ok()).collect();
+                if !parsed_uuids.is_empty() {
+                    let models = order::Entity::find()
+                        .filter(order::Column::Id.is_in(parsed_uuids))
+                        .all(&self.db)
+                        .await?;
+                    orders = models.into_iter().map(SyncableOrder::from).collect();
                 }
+            }
+            "document" => {
+                let parsed_uuids: Vec<uuid::Uuid> = ids.iter().filter_map(|s| s.parse().ok()).collect();
+                if !parsed_uuids.is_empty() {
+                    let models = document::Entity::find()
+                        .filter(document::Column::Id.is_in(parsed_uuids))
+                        .all(&self.db)
+                        .await?;
+                    documents = models.into_iter().map(SyncableDocument::from).collect();
+                }
+            }
+            "file_resource" => {
+                let parsed_uuids: Vec<uuid::Uuid> = ids.iter().filter_map(|s| s.parse().ok()).collect();
+                if !parsed_uuids.is_empty() {
+                    let models = file_resource::Entity::find()
+                        .filter(file_resource::Column::Id.is_in(parsed_uuids))
+                        .all(&self.db)
+                        .await?;
+                    file_resources = models.into_iter().map(SyncableFileResource::from).collect();
+                }
+            }
+            "attachment" => {
+                let parsed_uuids: Vec<uuid::Uuid> = ids.iter().filter_map(|s| s.parse().ok()).collect();
+                if !parsed_uuids.is_empty() {
+                    attachments = attachment::Entity::find()
+                        .filter(attachment::Column::Id.is_in(parsed_uuids))
+                        .all(&self.db)
+                        .await?;
+                }
+            }
+            _ => {
+                let parsed_ids: Vec<i64> = ids.iter().filter_map(|s| s.parse().ok()).collect();
+                if parsed_ids.is_empty() { return Ok(()); }
                 match entity_type {
                     "product" => {
                         products = product::Entity::find()
                             .filter(product::Column::Id.is_in(parsed_ids))
-                            .all(&self.db)
-                            .await?;
+                            .all(&self.db).await?;
                     }
                     "location" => {
                         locations = location::Entity::find()
                             .filter(location::Column::Id.is_in(parsed_ids))
-                            .all(&self.db)
-                            .await?;
+                            .all(&self.db).await?;
                     }
                     "shipment" => {
                         shipments = stock_picking_delivery::Entity::find()
                             .filter(stock_picking_delivery::Column::Id.is_in(parsed_ids))
-                            .all(&self.db)
-                            .await?;
+                            .all(&self.db).await?;
                     }
                     _ => {}
                 }
@@ -474,7 +658,7 @@ impl SyncEngine {
         }
 
         client
-            .push_entities(products, locations, shipments, users)
+            .push_entities(products, locations, shipments, users, orders, documents, file_resources, attachments)
             .await?;
         Ok(())
     }

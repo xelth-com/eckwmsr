@@ -1,12 +1,47 @@
 # Development Journal
 
 
+## 2026-03-02 — feat(sync): mesh sync for orders, documents, files, attachments
+
+- **order.id migrated from i32 to UUID** — distributed-safe, no auto-increment conflicts between servers
+- **4 new entity types in mesh sync**: order, document, file_resource, attachment
+- Added `SyncableOrder`, `SyncableDocument`, `SyncableFileResource` wrapper structs (base64 avatar_data, include deleted_at)
+- Extended `PullResponse`, `PushPayload`, `pull_handler`, `push_handler` with new entity vectors
+- Extended `SyncEngine`: upsert methods, relay process_*_packet, apply_pull_response, perform_push
+- Extended `MeshClient::push_entities` with 4 new Vec params, added `fetch_file(hash)` for lazy CAS fetch
+- **Push-on-write**: repair events, orders (create/update), file uploads + attachments push to all mesh peers
+- **3-tier push**: Direct HTTP → WebSocket signal → Relay fallback (same pattern as user sync)
+- **Startup sync** now pulls all 5 entity types (user, order, document, file_resource, attachment)
+- **`/mesh/file/:hash`** endpoint for peer lazy-fetch of full CAS file content
+- DB migration: `ALTER TABLE orders ALTER COLUMN id TYPE uuid` on both local and prod
+
 ## 2026-03-02 — feat(repair): Auto-create Repair Order on PDA slot bind
 
 - Added `device_bound` event trigger in Android `MainScreenViewModel` when a repair slot is bound to a device barcode
 - Added Rust backend interceptor in `handlers/repair.rs` for `device_bound` event type
 - Added `RepairService::process_device_bind()` in `services/repair.rs` — checks for existing active orders (not completed/cancelled) by serial number, creates a new pending `repair` order if none exist
 - Order number format: `REP-YYYYMMDD-XXXX` (random suffix)
+- Fixed NOT NULL constraint error: all required order fields now explicitly set (customer_email, parts_used, metadata, etc.)
+
+## 2026-03-02 — feat(pairing): include mesh peer URLs in QR candidates
+
+- `handlers/device.rs` `generate_pairing_qr()` now queries `mesh_nodes` for non-offline peers
+- Peer `base_url`s appended to connection candidates in QR code
+- Clients discover all servers in the mesh during pairing, not just the host
+
+## 2026-03-02 — fix(android): remove hardcoded pda.repair, filter link-local IPs
+
+- `SettingsManager.kt`: server_url and global_server_url defaults changed from `pda.repair/E` to empty string
+- Migration v2: clears any saved pda.repair URLs from legacy installs
+- `ScanRecoveryViewModel.kt`: 169.254.x.x addresses filtered from pairing candidates when real IPs available
+- `NetworkUtils.kt`: `isLinkLocalAddress` check added to skip 169.254.x.x in device IP detection
+- `NetworkPanelSheet.kt`: shows "NOT PAIRED" (grey) when server URLs are empty
+
+## 2026-03-02 — ops: prod DB schema migration for file_resources
+
+- Added columns: `hash` (unique), `width`, `height`, `avatar_data`, `context` to `file_resources` on prod
+- Fixed NOT NULL constraints on `mime_type`, `size`, `source_instance`, timestamps
+- Cleaned legacy data (349K stub file_resources from Go era)
 
 
 
