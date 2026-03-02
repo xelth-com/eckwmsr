@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::db::AppState;
-use crate::models::registered_device;
+use crate::models::{mesh_node, registered_device};
 use crate::utils::auth;
 use crate::utils::identity;
 
@@ -287,6 +287,26 @@ pub async fn generate_pairing_qr(
             global.push('/');
         }
         candidates.push(global);
+    }
+
+    // Add known peer URLs from mesh network
+    if let Ok(peers) = mesh_node::Entity::find()
+        .filter(mesh_node::Column::Status.ne("offline"))
+        .all(&state.db)
+        .await
+    {
+        for peer in peers {
+            if peer.instance_id != identity.instance_id && !peer.base_url.is_empty() {
+                let peer_url = if peer.base_url.ends_with('/') {
+                    peer.base_url.clone()
+                } else {
+                    format!("{}/", peer.base_url)
+                };
+                if !candidates.contains(&peer_url) {
+                    candidates.push(peer_url);
+                }
+            }
+        }
     }
 
     let connection_string = candidates.join(",").to_uppercase();
