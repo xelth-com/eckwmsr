@@ -10,3 +10,6 @@
 - `web/src/routes/dashboard/support/[id]/+page.svelte`: Customer Info + Device Info boxes, serial/company in Related Tickets, pass serial/model to forms
 - `web/src/routes/dashboard/repairs/[id]/+page.svelte`: Parse serial/model URL params
 - `web/src/routes/dashboard/rma/[id]/+page.svelte`: Parse serial/model URL params
+
+
+[SYSTEM: EMBEDDED]
