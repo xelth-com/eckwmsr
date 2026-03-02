@@ -35,6 +35,7 @@ pub struct TicketSummary {
     pub address: String,
     pub device_model: String,
     pub serial_number: String,
+    pub manufacturing_date: String,
     pub thread_count: usize,
     pub latest_update: String,
 }
@@ -135,6 +136,7 @@ pub async fn list_tickets(
             let address = find_val(&["address", "adresse"]);
             let device_model = find_val(&["inbody model", "inbodymodel"]);
             let serial_number = find_val(&["serial", "seriennummer"]);
+            let manufacturing_date = find_val(&["herstellungsdatum", "manufacturing date", "manufacturing"]);
 
             let latest_update = latest.payload["createdTime"]
                 .as_str()
@@ -153,6 +155,7 @@ pub async fn list_tickets(
                 address,
                 device_model,
                 serial_number,
+                manufacturing_date,
                 thread_count: threads.len(),
                 latest_update,
             }

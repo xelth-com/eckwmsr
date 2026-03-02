@@ -36,6 +36,7 @@ function _page($$renderer, $$props) {
     findVal(meta, ["address", "adresse"]);
     findVal(meta, ["inbody model", "inbodymodel"]);
     findVal(meta, ["serial", "seriennummer"]);
+    findVal(meta, ["herstellungsdatum", "manufacturing date", "manufacturing"]);
     $$renderer2.push(`<div class="detail-page svelte-15vwi97"><div class="back-link"><button class="back-btn svelte-15vwi97">← Back to tickets</button></div> `);
     {
       $$renderer2.push("<!--[-->");

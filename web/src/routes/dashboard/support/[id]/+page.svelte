@@ -86,6 +86,20 @@
     $: address = findVal(meta, ["address", "adresse"]);
     $: deviceModel = findVal(meta, ["inbody model", "inbodymodel"]);
     $: serialNumber = findVal(meta, ["serial", "seriennummer"]);
+    $: manufacturingDate = findVal(meta, ["herstellungsdatum", "manufacturing date", "manufacturing"]);
+
+    function getWarrantyStatus(dateStr) {
+        if (!dateStr) return null;
+        const mfgDate = new Date(dateStr);
+        if (isNaN(mfgDate)) return null;
+
+        const ageYears = (Date.now() - mfgDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+
+        if (ageYears < 2.0) return { text: "Warranty Active", class: "w-ok" };
+        if (ageYears < 2.3) return { text: "Likely Warranty (Check Purchase Date)", class: "w-check" };
+        if (ageYears < 2.5) return { text: "Possible Goodwill (Kulanz)", class: "w-goodwill" };
+        return { text: "Out of Warranty", class: "w-expired" };
+    }
 
     function computeRelatedTickets() {
         if (allTickets.length === 0 || threads.length === 0) return;
@@ -294,13 +308,20 @@
                         </div>
                     </div>
                 </div>
-                {#if deviceModel || serialNumber}
+                {#if deviceModel || serialNumber || manufacturingDate}
                     <div class="ticket-device-box">
                         <div class="box-icon">💻</div>
                         <div class="box-details">
                             <div class="box-title">{deviceModel || 'Unknown Device'}</div>
                             <div class="box-sub">
                                 {#if serialNumber}<div class="c-item mono">SN: {serialNumber}</div>{/if}
+                                {#if manufacturingDate}
+                                    <div class="c-item">Mfg: {new Date(manufacturingDate).toLocaleDateString('de-DE')}</div>
+                                    {@const wStatus = getWarrantyStatus(manufacturingDate)}
+                                    {#if wStatus}
+                                        <div class="warranty-badge {wStatus.class}">{wStatus.text}</div>
+                                    {/if}
+                                {/if}
                             </div>
                         </div>
                     </div>
@@ -486,8 +507,14 @@
     .box-details { display: flex; flex-direction: column; gap: 0.3rem; }
     .box-title { font-weight: 600; color: #e0e0e0; font-size: 0.95rem; }
     .ticket-device-box .box-title { color: #a3bffa; }
-    .box-sub { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; color: #888; }
+    .box-sub { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; color: #888; align-items: flex-start; }
     .c-item { display: inline-flex; align-items: center; }
+
+    .warranty-badge { font-size: 0.7rem; padding: 0.2rem 0.5rem; border-radius: 4px; display: inline-block; font-weight: 600; margin-top: 2px; }
+    .warranty-badge.w-ok { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
+    .warranty-badge.w-check { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
+    .warranty-badge.w-goodwill { background: rgba(249, 115, 22, 0.15); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.3); }
+    .warranty-badge.w-expired { background: rgba(156, 163, 175, 0.1); color: #9ca3af; border: 1px solid rgba(156, 163, 175, 0.3); }
 
     /* Related Tickets Banner */
     .related-tickets-banner {

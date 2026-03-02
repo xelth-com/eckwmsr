@@ -41,6 +41,19 @@
         } catch { return str; }
     }
 
+    function getWarrantyStatus(dateStr) {
+        if (!dateStr) return null;
+        const mfgDate = new Date(dateStr);
+        if (isNaN(mfgDate)) return null;
+
+        const ageYears = (Date.now() - mfgDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+
+        if (ageYears < 2.0) return { text: "Warranty", class: "w-ok" };
+        if (ageYears < 2.3) return { text: "Likely Warranty (Check Purchase)", class: "w-check" };
+        if (ageYears < 2.5) return { text: "Possible Goodwill (Kulanz)", class: "w-goodwill" };
+        return { text: "Out of Warranty", class: "w-expired" };
+    }
+
     function statusClass(status) {
         const s = (status || '').toLowerCase();
         if (s === 'open') return 'open';
@@ -75,7 +88,8 @@
                 <thead>
                     <tr>
                         <th>Ticket #</th>
-                        <th>Subject / Device</th>
+                        <th>Subject</th>
+                        <th>Device & Warranty</th>
                         <th>Customer</th>
                         <th>Status</th>
                         <th class="center">Threads</th>
@@ -88,12 +102,20 @@
                             <td class="mono highlight">#{ticket.ticket_number || ticket.ticket_id.substring(0,8)}</td>
                             <td class="subject-cell">
                                 <div class="subject">{ticket.subject}</div>
+                            </td>
+                            <td class="device-cell">
                                 {#if ticket.device_model || ticket.serial_number}
                                     <div class="device-badge">
                                         {#if ticket.device_model}{ticket.device_model}{/if}
                                         {#if ticket.device_model && ticket.serial_number} | {/if}
                                         {#if ticket.serial_number}SN: <span class="mono">{ticket.serial_number}</span>{/if}
                                     </div>
+                                {/if}
+                                {#if ticket.manufacturing_date}
+                                    {@const wStatus = getWarrantyStatus(ticket.manufacturing_date)}
+                                    {#if wStatus}
+                                        <div class="warranty-badge {wStatus.class}">{wStatus.text}</div>
+                                    {/if}
                                 {/if}
                             </td>
                             <td class="customer-cell">
@@ -200,9 +222,16 @@
     .highlight { color: #6bc5f0; font-weight: bold; }
     .date { color: #888; font-size: 0.85rem; }
     .center { text-align: center; }
-    .subject-cell { display: flex; flex-direction: column; gap: 0.4rem; max-width: 380px; }
+    .subject-cell { max-width: 300px; }
     .subject { font-weight: 500; color: #fff; line-height: 1.4; }
+
+    .device-cell { display: flex; flex-direction: column; gap: 0.3rem; min-width: 180px; }
     .device-badge { font-size: 0.75rem; color: #a3bffa; background: #1a2a4a; padding: 0.2rem 0.5rem; border-radius: 4px; display: inline-block; width: fit-content; border: 1px solid #4a69bd; }
+    .warranty-badge { font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-block; width: fit-content; font-weight: 600; }
+    .warranty-badge.w-ok { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
+    .warranty-badge.w-check { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
+    .warranty-badge.w-goodwill { background: rgba(249, 115, 22, 0.15); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.3); }
+    .warranty-badge.w-expired { background: rgba(156, 163, 175, 0.1); color: #9ca3af; border: 1px solid rgba(156, 163, 175, 0.3); }
 
     .customer-cell { display: flex; flex-direction: column; gap: 0.25rem; }
     .c-name { font-weight: 600; color: #ccc; }
