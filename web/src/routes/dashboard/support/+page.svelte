@@ -54,6 +54,19 @@
         return { text: "Out of Warranty", class: "w-expired" };
     }
 
+    function createRepairFromTicket(event, ticket) {
+        event.stopPropagation();
+        const params = new URLSearchParams({
+            ticketId: ticket.ticket_id,
+            name: ticket.customer || '',
+            email: ticket.email || '',
+            issue: ticket.subject || '',
+            serial: ticket.serial_number || '',
+            model: ticket.device_model || ''
+        });
+        goto(`${base}/dashboard/repairs/new?${params}`);
+    }
+
     function statusClass(status) {
         const s = (status || '').toLowerCase();
         if (s === 'open') return 'open';
@@ -88,53 +101,63 @@
                 <thead>
                     <tr>
                         <th>Ticket #</th>
-                        <th>Subject</th>
-                        <th>Device & Warranty</th>
+                        <th>Request Details</th>
                         <th>Customer</th>
                         <th>Status</th>
                         <th class="center">Threads</th>
-                        <th>Latest Update</th>
+                        <th>Updated</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
                     {#each tickets as ticket}
                         <tr class="ticket-row" on:click={() => openTicket(ticket.ticket_id)}>
                             <td class="mono highlight">#{ticket.ticket_number || ticket.ticket_id.substring(0,8)}</td>
-                            <td class="subject-cell">
+
+                            <td class="req-cell">
                                 <div class="subject">{ticket.subject}</div>
-                            </td>
-                            <td class="device-cell">
-                                {#if ticket.device_model || ticket.serial_number}
-                                    <div class="device-badge">
-                                        {#if ticket.device_model}{ticket.device_model}{/if}
-                                        {#if ticket.device_model && ticket.serial_number} | {/if}
-                                        {#if ticket.serial_number}SN: <span class="mono">{ticket.serial_number}</span>{/if}
-                                    </div>
-                                {/if}
-                                {#if ticket.manufacturing_date}
-                                    {@const wStatus = getWarrantyStatus(ticket.manufacturing_date)}
-                                    {#if wStatus}
-                                        <div class="warranty-badge {wStatus.class}">{wStatus.text}</div>
+                                <div class="device-row">
+                                    {#if ticket.device_model || ticket.serial_number}
+                                        <div class="device-badge">
+                                            {#if ticket.device_model}{ticket.device_model}{/if}
+                                            {#if ticket.device_model && ticket.serial_number} | {/if}
+                                            {#if ticket.serial_number}SN: <span class="mono">{ticket.serial_number}</span>{/if}
+                                        </div>
                                     {/if}
-                                {/if}
+                                    {#if ticket.manufacturing_date}
+                                        {@const wStatus = getWarrantyStatus(ticket.manufacturing_date)}
+                                        {#if wStatus}
+                                            <div class="warranty-badge {wStatus.class}">{wStatus.text}</div>
+                                        {/if}
+                                    {/if}
+                                </div>
                             </td>
+
                             <td class="customer-cell">
-                                <div class="c-name">{ticket.customer || 'Unknown'}</div>
-                                {#if ticket.company}<div class="c-company">{ticket.company}</div>{/if}
-                                {#if ticket.email || ticket.phone}
-                                    <div class="c-contact">
-                                        {#if ticket.email}<span class="c-email">{ticket.email}</span>{/if}
-                                        {#if ticket.phone}<span class="c-phone">{ticket.phone}</span>{/if}
-                                    </div>
-                                {/if}
+                                <div class="c-row">
+                                    <span class="c-name">{ticket.customer || 'Unknown'}</span>
+                                    {#if ticket.company}<span class="c-company">{ticket.company}</span>{/if}
+                                </div>
+                                <div class="c-row c-contact">
+                                    {#if ticket.email}<span class="c-email">{ticket.email}</span>{/if}
+                                    {#if ticket.phone}<span class="c-phone">{ticket.phone}</span>{/if}
+                                </div>
                             </td>
+
                             <td>
                                 <span class="status-badge {statusClass(ticket.status)}">
                                     {ticket.status}
                                 </span>
                             </td>
+
                             <td class="center mono">{ticket.thread_count}</td>
                             <td class="mono date">{formatDate(ticket.latest_update)}</td>
+
+                            <td on:click|stopPropagation>
+                                <button class="action-btn repair-btn" on:click={(e) => createRepairFromTicket(e, ticket)}>
+                                    Repair
+                                </button>
+                            </td>
                         </tr>
                     {/each}
                 </tbody>
@@ -222,22 +245,28 @@
     .highlight { color: #6bc5f0; font-weight: bold; }
     .date { color: #888; font-size: 0.85rem; }
     .center { text-align: center; }
-    .subject-cell { max-width: 300px; }
-    .subject { font-weight: 500; color: #fff; line-height: 1.4; }
 
-    .device-cell { display: flex; flex-direction: column; gap: 0.3rem; min-width: 180px; }
-    .device-badge { font-size: 0.75rem; color: #a3bffa; background: #1a2a4a; padding: 0.2rem 0.5rem; border-radius: 4px; display: inline-block; width: fit-content; border: 1px solid #4a69bd; }
-    .warranty-badge { font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-block; width: fit-content; font-weight: 600; }
+    .req-cell { max-width: 400px; }
+    .subject { font-weight: 500; color: #fff; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .device-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.4rem; }
+    .device-badge { font-size: 0.75rem; color: #a3bffa; background: #1a2a4a; padding: 0.15rem 0.5rem; border-radius: 4px; border: 1px solid #4a69bd; white-space: nowrap; }
+
+    .warranty-badge { font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; white-space: nowrap; }
     .warranty-badge.w-ok { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
     .warranty-badge.w-check { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
     .warranty-badge.w-goodwill { background: rgba(249, 115, 22, 0.15); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.3); }
     .warranty-badge.w-expired { background: rgba(156, 163, 175, 0.1); color: #9ca3af; border: 1px solid rgba(156, 163, 175, 0.3); }
 
-    .customer-cell { display: flex; flex-direction: column; gap: 0.25rem; }
-    .c-name { font-weight: 600; color: #ccc; }
-    .c-company { font-size: 0.8rem; color: #fbbf24; }
-    .c-contact { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.75rem; color: #888; }
+    .customer-cell { max-width: 350px; }
+    .c-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.2rem; }
+    .c-name { font-weight: 600; color: #e0e0e0; font-size: 0.95rem; }
+    .c-company { font-size: 0.75rem; color: #fbbf24; background: rgba(251, 191, 36, 0.1); padding: 0.1rem 0.4rem; border-radius: 4px; border: 1px solid rgba(251, 191, 36, 0.3); }
+    .c-contact { font-size: 0.8rem; color: #888; margin-top: 0.3rem; }
     .c-email, .c-phone { white-space: nowrap; }
+
+    .action-btn { padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.8rem; cursor: pointer; font-weight: 600; transition: all 0.2s; white-space: nowrap; }
+    .repair-btn { background: transparent; border: 1px solid #3b82f6; color: #93c5fd; }
+    .repair-btn:hover { background: #1e3a5f; color: #fff; }
 
     .status-badge {
         display: inline-block;
