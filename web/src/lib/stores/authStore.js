@@ -24,6 +24,21 @@ function createAuthStore() {
             update(s => ({ ...s, isLoading: false }));
         }
     },
+    setTokens: (accessToken, refreshToken, user) => {
+        if (browser) {
+            localStorage.setItem('auth_token', accessToken);
+            if (refreshToken) {
+                localStorage.setItem('refresh_token', refreshToken);
+            }
+        }
+        update(s => ({
+            ...s,
+            isAuthenticated: true,
+            currentUser: user || s.currentUser,
+            token: accessToken,
+            isLoading: false
+        }));
+    },
     login: async (email, password) => {
         update(s => ({ ...s, isLoading: true }));
         try {
@@ -39,6 +54,7 @@ function createAuthStore() {
             const data = await res.json();
             if (browser) {
                 localStorage.setItem('auth_token', data.tokens.accessToken);
+                localStorage.setItem('refresh_token', data.tokens.refreshToken);
             }
 
             update(s => ({
@@ -55,7 +71,10 @@ function createAuthStore() {
         }
     },
     logout: () => {
-        if (browser) localStorage.removeItem('auth_token');
+        if (browser) {
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('refresh_token');
+        }
         set({ ...initialState, isLoading: false });
     }
   };

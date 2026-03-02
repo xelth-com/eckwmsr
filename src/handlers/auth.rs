@@ -33,6 +33,12 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+#[derive(Deserialize)]
+pub struct RefreshRequest {
+    #[serde(rename = "refreshToken")]
+    pub refresh_token: String,
+}
+
 /// GET /auth/setup-status — returns setup credentials if this is a fresh install
 pub async fn setup_status(
     State(state): State<Arc<AppState>>,
@@ -111,6 +117,49 @@ pub async fn login(
             access_token,
             refresh_token,
         },
+        user: found_user,
+    }))
+}
+
+/// POST /auth/refresh — exchanges a valid refresh token for a new token pair
+pub async fn refresh(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<RefreshRequest>,
+) -> Result<Json<LoginResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let claims = auth::validate_refresh_token(&payload.refresh_token, &state.config.jwt_secret)
+        .map_err(|e| {
+            info!("[AUTH] Invalid refresh token: {}", e);
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse { error: "Invalid or expired refresh token".into() }),
+            )
+        })?;
+
+    let user_id = uuid::Uuid::parse_str(&claims.id).map_err(|_| {
+        (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "Invalid user ID format in token".into() }))
+    })?;
+
+    let found_user = user::Entity::find_by_id(user_id)
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() })))?
+        .ok_or_else(|| {
+            (StatusCode::UNAUTHORIZED, Json(ErrorResponse { error: "User not found".into() }))
+        })?;
+
+    if !found_user.is_active || found_user.deleted_at.is_some() {
+        return Err((StatusCode::UNAUTHORIZED, Json(ErrorResponse { error: "User account is disabled".into() })));
+    }
+
+    let (access_token, refresh_token) = auth::generate_tokens(&found_user, &state.config.jwt_secret)
+        .map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("Failed to generate tokens: {}", e) }))
+        })?;
+
+    info!("[AUTH] Token refreshed for user: {}", found_user.email);
+
+    Ok(Json(LoginResponse {
+        tokens: Tokens { access_token, refresh_token },
         user: found_user,
     }))
 }

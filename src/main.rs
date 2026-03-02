@@ -503,6 +503,7 @@ async fn main() {
         .route("/E/ws", get(handlers::ws::ws_handler))
         // Auth routes (public)
         .route("/E/auth/login", post(handlers::auth::login))
+        .route("/E/auth/refresh", post(handlers::auth::refresh))
         .route("/E/auth/setup-status", get(handlers::auth::setup_status))
         // Device registration (public — uses Ed25519 signature, not JWT)
         .route("/E/api/internal/register-device", post(handlers::device::register_device))

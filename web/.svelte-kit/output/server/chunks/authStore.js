@@ -17,6 +17,15 @@ function createAuthStore() {
     init: () => {
       return;
     },
+    setTokens: (accessToken, refreshToken, user) => {
+      update((s) => ({
+        ...s,
+        isAuthenticated: true,
+        currentUser: user || s.currentUser,
+        token: accessToken,
+        isLoading: false
+      }));
+    },
     login: async (email, password) => {
       update((s) => ({ ...s, isLoading: true }));
       try {

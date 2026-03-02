@@ -81,6 +81,18 @@ pub fn validate_token(token: &str, secret: &str) -> Result<Claims, String> {
     Ok(token_data.claims)
 }
 
+/// Validate a Refresh JWT token and return RefreshClaims
+pub fn validate_refresh_token(token: &str, secret: &str) -> Result<RefreshClaims, String> {
+    let token_data = decode::<RefreshClaims>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::default(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(token_data.claims)
+}
+
 /// Claims for invite tokens (VIP QR auto-approve)
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InviteClaims {

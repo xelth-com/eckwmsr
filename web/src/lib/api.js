@@ -2,7 +2,31 @@ import { get } from 'svelte/store';
 import { authStore } from '$lib/stores/authStore';
 import { base } from '$app/paths';
 
-const BASE_URL = base || '/E'; // Use SvelteKit base path or fallback to /E
+const BASE_URL = base || '/E';
+
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+    failedQueue.forEach(prom => {
+        if (error) {
+            prom.reject(error);
+        } else {
+            prom.resolve(token);
+        }
+    });
+    failedQueue = [];
+};
+
+function redirectToLogin() {
+    if (typeof window !== 'undefined') {
+        let basePath = '/E';
+        if (window.location.pathname.includes('/dashboard')) {
+            basePath = window.location.pathname.split('/dashboard')[0] || '/E';
+        }
+        window.location.href = `${basePath}/login`;
+    }
+}
 
 async function request(endpoint, options = {}) {
     const state = get(authStore);
@@ -20,28 +44,74 @@ async function request(endpoint, options = {}) {
         headers
     };
 
-    const response = await fetch(`${BASE_URL}${endpoint}`, config);
+    let response = await fetch(`${BASE_URL}${endpoint}`, config);
 
     if (response.status === 401) {
-        authStore.logout();
-        if (typeof window !== 'undefined') {
-            // FIX: Robust base path handling
-            // 1. Try to get base from current URL (anything before /dashboard)
-            // 2. Fallback to /E if on root
-            let basePath = '/E';
-            if (window.location.pathname.includes('/dashboard')) {
-                basePath = window.location.pathname.split('/dashboard')[0] || '/E';
-            }
-            window.location.href = `${basePath}/login`;
+        const originalRequestConfig = config;
+
+        // If a refresh is already in progress, queue this request
+        if (isRefreshing) {
+            return new Promise(function (resolve, reject) {
+                failedQueue.push({ resolve, reject });
+            })
+            .then(token => {
+                originalRequestConfig.headers['Authorization'] = `Bearer ${token}`;
+                return fetch(`${BASE_URL}${endpoint}`, originalRequestConfig).then(handleResponse);
+            })
+            .catch(err => {
+                throw err;
+            });
         }
-        throw new Error('Unauthorized');
+
+        const refreshToken = typeof window !== 'undefined' ? localStorage.getItem('refresh_token') : null;
+
+        if (!refreshToken) {
+            authStore.logout();
+            redirectToLogin();
+            throw new Error('Unauthorized');
+        }
+
+        isRefreshing = true;
+
+        try {
+            const refreshRes = await fetch(`${BASE_URL}/auth/refresh`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refreshToken })
+            });
+
+            if (!refreshRes.ok) {
+                throw new Error('Refresh token invalid or expired');
+            }
+
+            const data = await refreshRes.json();
+
+            authStore.setTokens(data.tokens.accessToken, data.tokens.refreshToken, data.user);
+
+            processQueue(null, data.tokens.accessToken);
+
+            // Retry the original request
+            originalRequestConfig.headers['Authorization'] = `Bearer ${data.tokens.accessToken}`;
+            response = await fetch(`${BASE_URL}${endpoint}`, originalRequestConfig);
+
+        } catch (err) {
+            processQueue(err, null);
+            authStore.logout();
+            redirectToLogin();
+            throw new Error('Session expired');
+        } finally {
+            isRefreshing = false;
+        }
     }
 
+    return handleResponse(response);
+}
+
+async function handleResponse(response) {
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || `Request failed: ${response.status}`);
     }
-
     return response.json();
 }
 
