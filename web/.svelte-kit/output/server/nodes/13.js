@@ -2,13 +2,7 @@
 
 export const index = 13;
 let component_cache;
-export const component = async () => component_cache ??= (await import('../entries/pages/dashboard/scrapers/_page.svelte.js')).default;
-export const universal = {
-  "ssr": false,
-  "prerender": false,
-  "load": null
-};
-export const universal_id = "src/routes/dashboard/scrapers/+page.js";
-export const imports = ["i/immutable/nodes/13.Dzl_SCws.js","i/immutable/chunks/qx3z2q3X.js","i/immutable/chunks/5f1SCnuC.js","i/immutable/chunks/Dc-69-yF.js","i/immutable/chunks/BzWVacZY.js","i/immutable/chunks/iR2dgGIM.js","i/immutable/chunks/C5gafh_b.js","i/immutable/chunks/C-IVEp84.js","i/immutable/chunks/Dwgbs3Qr.js","i/immutable/chunks/lnrZtdjg.js","i/immutable/chunks/BfuDPpiA.js","i/immutable/chunks/DfzfxLnL.js","i/immutable/chunks/BzJTQ2Am.js","i/immutable/chunks/Bfc47y5P.js","i/immutable/chunks/CwI3xiQG.js","i/immutable/chunks/CgIgtQJU.js","i/immutable/chunks/C0YZ9jco.js","i/immutable/chunks/gZ7TAWYC.js"];
-export const stylesheets = ["i/immutable/assets/13.DKVV-0xp.css"];
+export const component = async () => component_cache ??= (await import('../entries/pages/dashboard/rma/_id_/_page.svelte.js')).default;
+export const imports = ["i/immutable/nodes/13.DSdbKZvF.js","i/immutable/chunks/D6A3UyO8.js","i/immutable/chunks/C1ffpMTo.js","i/immutable/chunks/D7BOgdYp.js","i/immutable/chunks/BOAnDIdj.js","i/immutable/chunks/D58zJJ-1.js","i/immutable/chunks/BdfR6hyv.js","i/immutable/chunks/4k0UURMA.js","i/immutable/chunks/D--pQFaP.js","i/immutable/chunks/Bfc47y5P.js","i/immutable/chunks/BDuJKAP8.js","i/immutable/chunks/BuaRSHO0.js","i/immutable/chunks/CCNBdScO.js","i/immutable/chunks/C8eyfVEy.js","i/immutable/chunks/d4E1Q5wc.js","i/immutable/chunks/D-cQCM4x.js","i/immutable/chunks/ndQYkU6X.js"];
+export const stylesheets = ["i/immutable/assets/13.CSwrrXsh.css"];
 export const fonts = [];

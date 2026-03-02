@@ -195,6 +195,13 @@
             >
                 Scrapers
             </a>
+            <a
+                href="{base}/dashboard/analysis"
+                class:active={$page.url.pathname.includes("/analysis")}
+                style="margin-top: 1rem; border-top: 1px solid #333; padding-top: 1rem;"
+            >
+                Analysis
+            </a>
         </nav>
 
         <div class="user-panel">

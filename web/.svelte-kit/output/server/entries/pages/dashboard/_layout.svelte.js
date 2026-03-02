@@ -154,7 +154,9 @@ function _layout($$renderer, $$props) {
       "active": store_get($$store_subs ??= {}, "$page", page).url.pathname.includes("/users")
     })}>Users</a> <a${attr("href", `${stringify(base)}/dashboard/scrapers`)}${attr_class("svelte-2agd5u", void 0, {
       "active": store_get($$store_subs ??= {}, "$page", page).url.pathname.includes("/scrapers")
-    })}>Scrapers</a></nav> <div class="user-panel svelte-2agd5u"><div class="user-info svelte-2agd5u"><span class="username svelte-2agd5u">${escape_html(store_get($$store_subs ??= {}, "$authStore", authStore).currentUser?.username || "User")}</span> <span class="role svelte-2agd5u">${escape_html(store_get($$store_subs ??= {}, "$authStore", authStore).currentUser?.role || "Operator")}</span></div> <button class="logout-btn svelte-2agd5u">Logout</button></div></aside> <main class="content svelte-2agd5u"><!--[-->`);
+    })}>Scrapers</a> <a${attr("href", `${stringify(base)}/dashboard/analysis`)} style="margin-top: 1rem; border-top: 1px solid #333; padding-top: 1rem;"${attr_class("svelte-2agd5u", void 0, {
+      "active": store_get($$store_subs ??= {}, "$page", page).url.pathname.includes("/analysis")
+    })}>Analysis</a></nav> <div class="user-panel svelte-2agd5u"><div class="user-info svelte-2agd5u"><span class="username svelte-2agd5u">${escape_html(store_get($$store_subs ??= {}, "$authStore", authStore).currentUser?.username || "User")}</span> <span class="role svelte-2agd5u">${escape_html(store_get($$store_subs ??= {}, "$authStore", authStore).currentUser?.role || "Operator")}</span></div> <button class="logout-btn svelte-2agd5u">Logout</button></div></aside> <main class="content svelte-2agd5u"><!--[-->`);
     slot($$renderer2, $$props, "default", {});
     $$renderer2.push(`<!--]--></main> `);
     ToastContainer($$renderer2);

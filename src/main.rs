@@ -458,6 +458,8 @@ async fn main() {
         .route("/support/tickets/:ticket_id/threads", get(handlers::support::get_ticket_threads))
         .route("/support/tickets/:ticket_id/summary", post(handlers::support::summarize_ticket))
         .route("/support/import-thread", post(handlers::support::import_thread))
+        // Analysis & Research
+        .route("/analysis/support-dump", get(handlers::analysis::support_dump))
         // Admin Config & Mesh Management
         .route("/admin/config/save-key", post(handlers::config::save_network_key))
         .route("/admin/mesh/:id", delete(handlers::mesh::delete_node))

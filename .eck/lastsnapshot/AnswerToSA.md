@@ -1,15 +1,15 @@
-# Report: Compact Ticket List Layout + Quick Repair Action
+# Report: Implement Analysis & Research Module
 **Executor:** Claude Opus 4.6
 **Status:** SUCCESS
 **Changes:**
-- `web/src/routes/dashboard/support/+page.svelte`:
-  - Combined Subject + Device/Warranty into single "Request Details" column (subject clamped to 2 lines, device badge + warranty badge inline below)
-  - Customer info reorganized into horizontal two-line layout: Name + Company on first row, Email + Phone on second row — eliminates vertical bloat
-  - Added "Repair" action button column with `stopPropagation` so it doesn't trigger row navigation
-  - `createRepairFromTicket()` navigates to `/dashboard/repairs/new` with pre-filled params (ticketId, name, email, issue, serial, model)
-  - Renamed "Latest Update" → "Updated" for column width savings
+- `src/handlers/analysis.rs`: New endpoint `GET /api/analysis/support-dump` — groups support threads by ticket, strips HTML, sorts chronologically, returns clean text data for LLM consumption
+- `src/handlers/mod.rs` & `src/main.rs`: Registered `analysis` module and route
+- `web/src/routes/dashboard/+layout.svelte`: Added "Analysis" link to sidebar navigation
+- `web/src/routes/dashboard/analysis/+page.svelte`: Built Analysis sandbox UI with:
+  - Support Knowledge Extractor: fetch DB records, filter by status, editable system prompt, copy full prompt to clipboard
+  - Placeholder cards for future Repair Statistics and RAG modules
 
-**Build:** SvelteKit `npm run build` OK
+**Build:** Rust `cargo check` OK, SvelteKit `npm run build` OK, server verified at `/E/dashboard/analysis`
 
 
 [SYSTEM: EMBEDDED]

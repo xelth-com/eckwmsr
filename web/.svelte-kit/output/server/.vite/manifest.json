@@ -253,6 +253,22 @@
       "i/immutable/assets/_page.FSTqYJ8l.css"
     ]
   },
+  "src/routes/dashboard/analysis/+page.svelte": {
+    "file": "entries/pages/dashboard/analysis/_page.svelte.js",
+    "name": "entries/pages/dashboard/analysis/_page.svelte",
+    "src": "src/routes/dashboard/analysis/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_index2.js",
+      "_authStore.js",
+      "_url.js",
+      "_root.js",
+      "_toastStore.js"
+    ],
+    "css": [
+      "i/immutable/assets/_page.PlAQnpDE.css"
+    ]
+  },
   "src/routes/dashboard/devices/+page.svelte": {
     "file": "entries/pages/dashboard/devices/_page.svelte.js",
     "name": "entries/pages/dashboard/devices/_page.svelte",

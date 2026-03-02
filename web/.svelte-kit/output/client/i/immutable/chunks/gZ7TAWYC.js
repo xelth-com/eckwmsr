@@ -1,1 +1,0 @@
-import{H as d}from"./5f1SCnuC.js";function f(){const{subscribe:i,update:o}=d([]);return{subscribe:i,add:(e,r="info",t=3e3)=>{const a=Date.now()+Math.random(),n={id:a,message:e,type:r};o(s=>[...s,n]),t>0&&setTimeout(()=>{o(s=>s.filter(c=>c.id!==a))},t)},remove:e=>{o(r=>r.filter(t=>t.id!==e))}}}const u=f();export{u as t};
