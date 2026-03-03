@@ -1,14 +1,17 @@
 use aes_gcm::{
-    aead::{generic_array::typenum::U16, Aead, KeyInit},
+    aead::{generic_array::typenum::{U12, U16}, Aead, KeyInit},
     aes::Aes192,
     AesGcm,
 };
 use crc32fast::Hasher;
 use rand::RngCore;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::env;
 use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use super::smart_code::SmartTag;
 
 /// Custom Base32 alphabet (32 chars, excludes I, O, S, Z for readability)
 pub const BASE32_CHARS: &[u8] = b"0123456789ABCDEFGHJKLMNPQRTUVWXY";
@@ -231,10 +234,6 @@ pub fn encrypt_string(plaintext: &str) -> Result<String, anyhow::Error> {
         ));
     }
 
-    // Standard AES-192-GCM with 12-byte nonce
-    use aes_gcm::aead::generic_array::typenum::U12;
-    type Aes192Gcm12 = AesGcm<Aes192, U12>;
-
     let cipher = Aes192Gcm12::new_from_slice(&key)
         .map_err(|e| anyhow::anyhow!("cipher init error: {}", e))?;
 
@@ -253,6 +252,138 @@ pub fn encrypt_string(plaintext: &str) -> Result<String, anyhow::Error> {
     Ok(hex::encode(result))
 }
 
+/// AES-192-GCM with standard 12-byte nonce (for SmartTag binary encryption)
+type Aes192Gcm12 = AesGcm<Aes192, U12>;
+
+/// Encrypt a SmartTag into a QR-ready string.
+///
+/// Layout: `{prefix}{56 base32 chars}{iv_string}{suffix}`
+/// - 19-byte payload → AES-192-GCM → 35 bytes (19 + 16 tag) → 56 Base32 chars
+/// - iv_string: random Base32 of `iv_len` chars, SHA-256'd to derive 12-byte nonce
+pub fn eck_binary_encrypt(
+    tag: &SmartTag,
+    prefix: &str,
+    suffix: &str,
+    iv_len: usize,
+    key_hex: &str,
+) -> Result<String, anyhow::Error> {
+    let key = hex::decode(key_hex).map_err(|_| anyhow::anyhow!("invalid key hex"))?;
+    if key.len() != 24 {
+        return Err(anyhow::anyhow!("key must be 24 bytes (48 hex chars) for AES-192"));
+    }
+
+    // Generate random IV string from BASE32_CHARS alphabet
+    let iv_string = random_base32_string(iv_len);
+
+    // Derive 12-byte nonce: SHA-256(iv_string)[..12]
+    let nonce_bytes = derive_nonce_from_iv(&iv_string);
+    let nonce = aes_gcm::Nonce::<U12>::from_slice(&nonce_bytes);
+
+    let cipher = Aes192Gcm12::new_from_slice(&key)
+        .map_err(|e| anyhow::anyhow!("cipher init: {}", e))?;
+
+    let plaintext = tag.to_bytes();
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext.as_ref())
+        .map_err(|e| anyhow::anyhow!("encrypt failed: {}", e))?;
+
+    // 19 bytes plaintext + 16 bytes GCM tag = 35 bytes
+    debug_assert_eq!(ciphertext.len(), 35);
+
+    // 35 bytes = 7 groups of 5 bytes → 56 Base32 chars
+    let encoded = to_base32(&ciphertext);
+    debug_assert_eq!(encoded.len(), 56);
+
+    let data_str = String::from_utf8(encoded)?;
+    Ok(format!("{}{}{}{}", prefix, data_str, iv_string, suffix))
+}
+
+/// Decrypt a QR string back into a SmartTag.
+///
+/// Strips prefix/suffix, takes first 56 chars as data, remainder as iv_string.
+/// This makes decryption tolerant of any IV length.
+pub fn eck_binary_decrypt(
+    barcode: &str,
+    prefixes: &[String],
+    expected_suffix: &str,
+    key_hex: &str,
+) -> Result<SmartTag, anyhow::Error> {
+    let key = hex::decode(key_hex).map_err(|_| anyhow::anyhow!("invalid key hex"))?;
+    if key.len() != 24 {
+        return Err(anyhow::anyhow!("key must be 24 bytes (48 hex chars) for AES-192"));
+    }
+
+    // Match and strip prefix
+    let body = prefixes
+        .iter()
+        .find_map(|p| barcode.strip_prefix(p.as_str()))
+        .ok_or_else(|| anyhow::anyhow!("no matching prefix"))?;
+
+    // Strip suffix
+    let body = body
+        .strip_suffix(expected_suffix)
+        .ok_or_else(|| anyhow::anyhow!("suffix mismatch"))?;
+
+    if body.len() < 56 {
+        return Err(anyhow::anyhow!(
+            "body too short: {} chars (need >= 56)",
+            body.len()
+        ));
+    }
+
+    let data_str = &body[..56];
+    let iv_string = &body[56..];
+
+    // Derive nonce from iv_string
+    let nonce_bytes = derive_nonce_from_iv(iv_string);
+    let nonce = aes_gcm::Nonce::<U12>::from_slice(&nonce_bytes);
+
+    // Decode Base32 → 35 bytes
+    let ciphertext = from_base32(data_str.as_bytes());
+    if ciphertext.len() != 35 {
+        return Err(anyhow::anyhow!(
+            "decoded data is {} bytes, expected 35",
+            ciphertext.len()
+        ));
+    }
+
+    let cipher = Aes192Gcm12::new_from_slice(&key)
+        .map_err(|e| anyhow::anyhow!("cipher init: {}", e))?;
+
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext.as_ref())
+        .map_err(|_| anyhow::anyhow!("decryption failed: bad key, IV, or corrupted data"))?;
+
+    if plaintext.len() != 19 {
+        return Err(anyhow::anyhow!(
+            "decrypted payload is {} bytes, expected 19",
+            plaintext.len()
+        ));
+    }
+
+    let mut bytes = [0u8; 19];
+    bytes.copy_from_slice(&plaintext);
+    Ok(SmartTag::from_bytes(&bytes))
+}
+
+/// Generate a random string of `len` characters from the BASE32_CHARS alphabet.
+fn random_base32_string(len: usize) -> String {
+    let mut rng = rand::thread_rng();
+    let mut buf = vec![0u8; len];
+    rng.fill_bytes(&mut buf);
+    buf.iter()
+        .map(|&b| BASE32_CHARS[(b & 31) as usize] as char)
+        .collect()
+}
+
+/// Derive a 12-byte AES-GCM nonce from an arbitrary-length IV string via SHA-256.
+fn derive_nonce_from_iv(iv_string: &str) -> [u8; 12] {
+    let hash = Sha256::digest(iv_string.as_bytes());
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&hash[..12]);
+    nonce
+}
+
 /// Decrypt a hex-encoded encrypted string
 pub fn decrypt_string(encrypted_hex: &str) -> Result<String, anyhow::Error> {
     let enc_key_hex = env::var("ENC_KEY").unwrap_or_default();
@@ -267,9 +398,6 @@ pub fn decrypt_string(encrypted_hex: &str) -> Result<String, anyhow::Error> {
 
     let data =
         hex::decode(encrypted_hex).map_err(|_| anyhow::anyhow!("invalid encrypted data format"))?;
-
-    use aes_gcm::aead::generic_array::typenum::U12;
-    type Aes192Gcm12 = AesGcm<Aes192, U12>;
 
     let cipher = Aes192Gcm12::new_from_slice(&key)
         .map_err(|e| anyhow::anyhow!("cipher init error: {}", e))?;
@@ -286,4 +414,112 @@ pub fn decrypt_string(encrypted_hex: &str) -> Result<String, anyhow::Error> {
         .map_err(|_| anyhow::anyhow!("decryption failed"))?;
 
     Ok(String::from_utf8(plaintext)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::smart_code::{ENTITY_WMS_ITEM, ENTITY_TWENTY_COMPANY};
+
+    // Test key: 24 bytes = 48 hex chars
+    const TEST_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn test_binary_encrypt_decrypt_roundtrip() {
+        let uuid = uuid::Uuid::new_v4();
+        let tag = SmartTag::new(uuid, ENTITY_WMS_ITEM, 0x0042);
+
+        let prefix = "ECK1.COM/";
+        let suffix = "IB";
+        let iv_len = 9;
+
+        let encrypted = eck_binary_encrypt(&tag, prefix, suffix, iv_len, TEST_KEY).unwrap();
+
+        assert!(encrypted.starts_with(prefix));
+        assert!(encrypted.ends_with(suffix));
+        assert_eq!(encrypted.len(), prefix.len() + 56 + iv_len + suffix.len());
+
+        let prefixes = vec![prefix.to_string()];
+        let decrypted = eck_binary_decrypt(&encrypted, &prefixes, suffix, TEST_KEY).unwrap();
+
+        assert_eq!(decrypted, tag);
+        assert_eq!(decrypted.uuid(), uuid);
+        assert_eq!(decrypted.entity_type, ENTITY_WMS_ITEM);
+        assert_eq!(decrypted.flags, 0x0042);
+    }
+
+    #[test]
+    fn test_binary_different_iv_lengths() {
+        let uuid = uuid::Uuid::new_v4();
+        let tag = SmartTag::new(uuid, ENTITY_TWENTY_COMPANY, 0xFFFF);
+        let prefix = "ECK1.COM/";
+        let suffix = "IB";
+        let prefixes = vec![prefix.to_string()];
+
+        let enc5 = eck_binary_encrypt(&tag, prefix, suffix, 5, TEST_KEY).unwrap();
+        assert_eq!(enc5.len(), 9 + 56 + 5 + 2);
+
+        let enc12 = eck_binary_encrypt(&tag, prefix, suffix, 12, TEST_KEY).unwrap();
+        assert_eq!(enc12.len(), 9 + 56 + 12 + 2);
+
+        // Both decrypt correctly — decryptor auto-detects IV length
+        let dec5 = eck_binary_decrypt(&enc5, &prefixes, suffix, TEST_KEY).unwrap();
+        let dec12 = eck_binary_decrypt(&enc12, &prefixes, suffix, TEST_KEY).unwrap();
+        assert_eq!(dec5, tag);
+        assert_eq!(dec12, tag);
+    }
+
+    #[test]
+    fn test_binary_multiple_prefixes() {
+        let tag = SmartTag::new(uuid::Uuid::new_v4(), ENTITY_WMS_ITEM, 0);
+        let prefixes = vec![
+            "ECK1.COM/".to_string(),
+            "ECK2.COM/".to_string(),
+            "ECK3.COM/".to_string(),
+        ];
+
+        let enc = eck_binary_encrypt(&tag, "ECK2.COM/", "IB", 9, TEST_KEY).unwrap();
+        let dec = eck_binary_decrypt(&enc, &prefixes, "IB", TEST_KEY).unwrap();
+        assert_eq!(dec, tag);
+    }
+
+    #[test]
+    fn test_binary_wrong_key_fails() {
+        let tag = SmartTag::new(uuid::Uuid::new_v4(), ENTITY_WMS_ITEM, 0);
+        let enc = eck_binary_encrypt(&tag, "ECK1.COM/", "IB", 9, TEST_KEY).unwrap();
+
+        let wrong_key = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef";
+        let prefixes = vec!["ECK1.COM/".to_string()];
+        let result = eck_binary_decrypt(&enc, &prefixes, "IB", wrong_key);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_binary_wrong_suffix_fails() {
+        let tag = SmartTag::new(uuid::Uuid::new_v4(), ENTITY_WMS_ITEM, 0);
+        let enc = eck_binary_encrypt(&tag, "ECK1.COM/", "IB", 9, TEST_KEY).unwrap();
+        let prefixes = vec!["ECK1.COM/".to_string()];
+        let result = eck_binary_decrypt(&enc, &prefixes, "XX", TEST_KEY);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_base32_roundtrip_35_bytes() {
+        let mut data = [0u8; 35];
+        rand::thread_rng().fill_bytes(&mut data);
+        let encoded = to_base32(&data);
+        assert_eq!(encoded.len(), 56);
+        let decoded = from_base32(&encoded);
+        assert_eq!(decoded.len(), 35);
+        assert_eq!(&decoded[..], &data[..]);
+    }
+
+    #[test]
+    fn test_qr_version_3_fit() {
+        // QR Version 3 Alphanumeric = 77 chars max
+        // prefix(9) + data(56) + iv(9) + suffix(2) = 76 ≤ 77
+        let tag = SmartTag::new(uuid::Uuid::new_v4(), ENTITY_WMS_ITEM, 0);
+        let enc = eck_binary_encrypt(&tag, "ECK1.COM/", "IB", 9, TEST_KEY).unwrap();
+        assert!(enc.len() <= 77, "QR string {} chars > 77", enc.len());
+    }
 }

@@ -1,8 +1,70 @@
 use chrono::{DateTime, TimeZone, Utc, Duration};
 use thiserror::Error;
+use uuid::Uuid;
 
 // Base36 alphabet (0-9, A-Z) — matches Go's SmartBase32Chars
 const SMART_BASE32_CHARS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+// ==========================================
+// SmartTag — Binary QR payload (16+3 = 19 bytes)
+// ==========================================
+
+// Entity type constants — WMS range (0x00–0x0F)
+pub const ENTITY_WMS_ITEM: u8 = 0x00;
+pub const ENTITY_WMS_BOX: u8 = 0x01;
+pub const ENTITY_WMS_LOCATION: u8 = 0x02;
+pub const ENTITY_WMS_ORDER: u8 = 0x03;
+pub const ENTITY_WMS_LABEL: u8 = 0x04;
+pub const ENTITY_WMS_USER: u8 = 0x05;
+// CRM range (0x10–0x1F)
+pub const ENTITY_TWENTY_COMPANY: u8 = 0x10;
+pub const ENTITY_TWENTY_PERSON: u8 = 0x11;
+pub const ENTITY_TWENTY_OPPORTUNITY: u8 = 0x12;
+// Odoo range (0x20–0x2F)
+pub const ENTITY_ODOO_PRODUCT: u8 = 0x20;
+pub const ENTITY_ODOO_PARTNER: u8 = 0x21;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SmartTag {
+    pub uuid: [u8; 16],
+    pub entity_type: u8,
+    pub flags: u16,
+}
+
+impl SmartTag {
+    pub fn new(uuid: Uuid, entity_type: u8, flags: u16) -> Self {
+        Self {
+            uuid: *uuid.as_bytes(),
+            entity_type,
+            flags,
+        }
+    }
+
+    pub fn to_bytes(&self) -> [u8; 19] {
+        let mut buf = [0u8; 19];
+        buf[..16].copy_from_slice(&self.uuid);
+        buf[16] = self.entity_type;
+        buf[17] = (self.flags >> 8) as u8;
+        buf[18] = (self.flags & 0xFF) as u8;
+        buf
+    }
+
+    pub fn from_bytes(bytes: &[u8; 19]) -> Self {
+        let mut uuid = [0u8; 16];
+        uuid.copy_from_slice(&bytes[..16]);
+        let entity_type = bytes[16];
+        let flags = ((bytes[17] as u16) << 8) | (bytes[18] as u16);
+        Self {
+            uuid,
+            entity_type,
+            flags,
+        }
+    }
+
+    pub fn uuid(&self) -> Uuid {
+        Uuid::from_bytes(self.uuid)
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum SmartCodeError {
@@ -349,6 +411,27 @@ mod tests {
         assert_eq!(code, "p000000000000000031");
         let decoded = decode_smart_place(&code).unwrap();
         assert_eq!(decoded.location_id, 31);
+    }
+
+    #[test]
+    fn test_smart_tag_roundtrip() {
+        let uuid = uuid::Uuid::new_v4();
+        let tag = SmartTag::new(uuid, ENTITY_WMS_ITEM, 0x00FF);
+        let bytes = tag.to_bytes();
+        assert_eq!(bytes.len(), 19);
+        let decoded = SmartTag::from_bytes(&bytes);
+        assert_eq!(decoded, tag);
+        assert_eq!(decoded.uuid(), uuid);
+        assert_eq!(decoded.entity_type, ENTITY_WMS_ITEM);
+        assert_eq!(decoded.flags, 0x00FF);
+    }
+
+    #[test]
+    fn test_smart_tag_flags_big_endian() {
+        let tag = SmartTag::new(uuid::Uuid::nil(), ENTITY_TWENTY_COMPANY, 0xABCD);
+        let bytes = tag.to_bytes();
+        assert_eq!(bytes[17], 0xAB);
+        assert_eq!(bytes[18], 0xCD);
     }
 
     #[test]

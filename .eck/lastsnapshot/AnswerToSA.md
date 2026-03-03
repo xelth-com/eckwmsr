@@ -1,33 +1,46 @@
-# Task Complete: Murmur3 CAS Verification + Idempotency (Rust Server)
+# Task Complete: Binary SmartTag Encryption with Dynamic IV Length
 
 ## Date: 2026-03-03
 
 ### Status
-✅ **COMPLETE — Server verifies content hash, deduplicates by CAS UUID**
+✅ **COMPLETE — SmartTag encrypt/decrypt implemented, all 13 tests passing**
 
 ---
 
 ## What Was Done
 
-### Dependency
-- Added `murmur3 = "0.5"` to Cargo.toml
+### 1. Config (`src/config.rs`)
+- Added `qr_prefixes: Vec<String>` — parsed from `QR_PREFIXES` env (comma-separated, default `ECK1.COM/`)
+- Added `qr_tenant_suffix: String` — from `QR_TENANT_SUFFIX` env (default `IB`)
+- Added `qr_iv_length: usize` — from `QR_IV_LENGTH` env (default `9`)
 
-### FileStore (`services/filestore.rs`)
-- **`content_hash_uuid(data: &[u8]) -> Uuid`**: Computes deterministic UUID from file bytes using MurmurHash3 x64_128 (seed=0)
-- **Updated `save_file()`**: Now accepts `claimed_id: Option<&str>`
-  - If provided: verifies `claimed_id == computed_hash`. Returns **400 Bad Request** on mismatch (data corruption)
-  - Deduplication: checks by UUID first (new CAS), then falls back to SHA-256 hash (backward compat with old uploads)
-  - File record `id` is now the deterministic CAS UUID (not random v4)
-- **Cross-platform test**: Asserts matching UUIDs with Kotlin reference vectors
+### 2. SmartTag (`src/utils/smart_code.rs`)
+- `SmartTag` struct: `uuid: [u8; 16]`, `entity_type: u8`, `flags: u16`
+- `to_bytes() -> [u8; 19]` and `from_bytes(&[u8; 19])` (flags big-endian)
+- Entity type constants: WMS (0x00–0x05), Twenty CRM (0x10–0x12), Odoo (0x20–0x21)
 
-### Upload Handler (`handlers/file.rs`)
-- Extracts `imageId` from multipart form data
-- Passes it as `claimed_id` to `save_file()`
-- CAS mismatch returns 400, other errors return 500
+### 3. Binary Encryption (`src/utils/encryption.rs`)
+- **`eck_binary_encrypt(tag, prefix, suffix, iv_len, key_hex)`**:
+  - Random IV string of `iv_len` Base32 chars
+  - Nonce = SHA-256(iv_string)[:12]
+  - AES-192-GCM encrypts 19 bytes → 35 bytes → 56 Base32 chars (constant)
+  - Returns: `{prefix}{56ch data}{iv_string}{suffix}`
+- **`eck_binary_decrypt(barcode, prefixes, suffix, key_hex)`**:
+  - Strips prefix + suffix, first 56 chars = data, remainder = iv_string
+  - Auto-detects IV length → old QR codes remain valid after config change
 
-### Backward Compatibility
-- Old uploads (with SHA-256 hash) are still deduplicated via hash column lookup
-- `save_file()` without `claimed_id` (None) skips verification — works for server-side imports (support scraper)
+### 4. QR Layout Math
+```
+Payload:    16 (UUID) + 1 (type) + 2 (flags) = 19 bytes
+Encrypted:  19 + 16 (GCM tag) = 35 bytes
+Encoded:    35 * 8 / 5 = 56 Base32 chars (constant)
+QR String:  9 (prefix) + 56 (data) + 9 (iv) + 2 (suffix) = 76 chars
+QR V3 Max:  77 chars alphanumeric ✓
+```
+
+### 5. Tests (13 total, all pass)
+- SmartTag: roundtrip, big-endian flags
+- Encryption: roundtrip, different IV lengths (5 & 12), multiple prefixes, wrong key rejection, wrong suffix rejection, Base32 35-byte roundtrip, QR V3 fit
 
 ---
 
@@ -35,21 +48,13 @@
 
 | File | Change |
 |------|--------|
-| `Cargo.toml` | +`murmur3 = "0.5"` |
-| `src/services/filestore.rs` | +`content_hash_uuid()`, updated `save_file()` with CAS verification + idempotency |
-| `src/handlers/file.rs` | Extract `imageId` from multipart, pass to save_file, 400 on CAS mismatch |
-| `src/handlers/support.rs` | Added `None` for new `claimed_id` parameter |
+| `src/config.rs` | +3 fields: `qr_prefixes`, `qr_tenant_suffix`, `qr_iv_length` |
+| `src/utils/smart_code.rs` | +`SmartTag` struct, entity constants, `to_bytes`/`from_bytes`, 2 tests |
+| `src/utils/encryption.rs` | +`eck_binary_encrypt`, `eck_binary_decrypt`, helpers, 7 tests |
 
 ## Build & Test
-- `cargo check` — **OK** (50 pre-existing warnings)
-- `cargo test test_content_hash` — **1 passed**
-
-## Cross-Platform Reference Vectors
-```
-"test"  -> ac7d28cc-74bd-e19d-9a12-8231f9bd4d82
-"hello" -> cbd8a7b3-41bd-9b02-5b1e-906a48ae1d19
-""      -> 00000000-0000-0000-0000-000000000000
-```
+- `cargo check` — **OK**
+- `cargo test` — **13 passed** (smart_code + encryption)
 
 ---
 

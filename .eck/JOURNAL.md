@@ -1,6 +1,78 @@
 # Development Journal
 
+## 2026-03-03 — feat(crypto): Binary SmartTag encryption with dynamic IV length
 
+### What Was Done
+- **SmartTag struct** (`smart_code.rs`): 16-byte UUID + 1-byte entity_type + 2-byte flags (big-endian). Entity type constants for WMS (0x00–0x05), Twenty CRM (0x10–0x12), Odoo (0x20–0x21).
+- **`eck_binary_encrypt`** (`encryption.rs`): Serializes 19-byte SmartTag → AES-192-GCM encrypt → 35 bytes → 56 Base32 chars. Random IV string of configurable length, nonce derived via SHA-256(iv_string)[:12].
+- **`eck_binary_decrypt`** (`encryption.rs`): Strips prefix/suffix, takes first 56 chars as data, remainder as iv_string. Auto-detects IV length — old QR codes stay valid if `QR_IV_LENGTH` changes.
+- **Config** (`config.rs`): Added `qr_prefixes` (comma-separated, env `QR_PREFIXES`), `qr_tenant_suffix` (env `QR_TENANT_SUFFIX`), `qr_iv_length` (env `QR_IV_LENGTH`).
+- **Tests**: 7 new encryption tests + 2 SmartTag tests, all passing. Verifies roundtrip, multi-prefix, wrong key/suffix rejection, QR Version 3 fit (76 chars ≤ 77 max).
+
+### QR String Layout
+`[PREFIX 9ch][DATA 56ch][IV 9ch][SUFFIX 2ch]` = 76 chars (fits QR V3 Alphanumeric)
+
+
+
+## 2026-03-03 — Agent Report
+
+# Task Complete: Murmur3 CAS Verification + Idempotency (Rust Server)
+
+## Date: 2026-03-03
+
+### Status
+✅ **COMPLETE — Server verifies content hash, deduplicates by CAS UUID**
+
+---
+
+## What Was Done
+
+### Dependency
+- Added `murmur3 = "0.5"` to Cargo.toml
+
+### FileStore (`services/filestore.rs`)
+- **`content_hash_uuid(data: &[u8]) -> Uuid`**: Computes deterministic UUID from file bytes using MurmurHash3 x64_128 (seed=0)
+- **Updated `save_file()`**: Now accepts `claimed_id: Option<&str>`
+  - If provided: verifies `claimed_id == computed_hash`. Returns **400 Bad Request** on mismatch (data corruption)
+  - Deduplication: checks by UUID first (new CAS), then falls back to SHA-256 hash (backward compat with old uploads)
+  - File record `id` is now the deterministic CAS UUID (not random v4)
+- **Cross-platform test**: Asserts matching UUIDs with Kotlin reference vectors
+
+### Upload Handler (`handlers/file.rs`)
+- Extracts `imageId` from multipart form data
+- Passes it as `claimed_id` to `save_file()`
+- CAS mismatch returns 400, other errors return 500
+
+### Backward Compatibility
+- Old uploads (with SHA-256 hash) are still deduplicated via hash column lookup
+- `save_file()` without `claimed_id` (None) skips verification — works for server-side imports (support scraper)
+
+---
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `Cargo.toml` | +`murmur3 = "0.5"` |
+| `src/services/filestore.rs` | +`content_hash_uuid()`, updated `save_file()` with CAS verification + idempotency |
+| `src/handlers/file.rs` | Extract `imageId` from multipart, pass to save_file, 400 on CAS mismatch |
+| `src/handlers/support.rs` | Added `None` for new `claimed_id` parameter |
+
+## Build & Test
+- `cargo check` — **OK** (50 pre-existing warnings)
+- `cargo test test_content_hash` — **1 passed**
+
+## Cross-Platform Reference Vectors
+```
+"test"  -> ac7d28cc-74bd-e19d-9a12-8231f9bd4d82
+"hello" -> cbd8a7b3-41bd-9b02-5b1e-906a48ae1d19
+""      -> 00000000-0000-0000-0000-000000000000
+```
+
+---
+
+**Agent**: Expert Developer (The Fixer)
+**Status**: ✅ Complete
 
 ## 2026-03-03 — Agent Report
 

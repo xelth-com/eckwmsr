@@ -19,6 +19,12 @@ pub struct Config {
     pub gemini_primary_model: String,
     pub gemini_fallback_model: String,
     pub odoo: OdooConfig,
+    /// QR code prefixes to match during decryption (e.g. ["ECK1.COM/"])
+    pub qr_prefixes: Vec<String>,
+    /// Tenant suffix appended to QR codes (e.g. "IB")
+    pub qr_tenant_suffix: String,
+    /// Length of the random IV string in Base32 characters
+    pub qr_iv_length: usize,
 }
 
 #[derive(Clone, Default)]
@@ -69,6 +75,21 @@ pub fn load_config() -> Config {
     let gemini_fallback_model =
         env::var("GEMINI_FALLBACK_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".to_string());
 
+    let qr_prefixes: Vec<String> = env::var("QR_PREFIXES")
+        .unwrap_or_else(|_| "ECK1.COM/".to_string())
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let qr_tenant_suffix =
+        env::var("QR_TENANT_SUFFIX").unwrap_or_else(|_| "IB".to_string());
+
+    let qr_iv_length: usize = env::var("QR_IV_LENGTH")
+        .unwrap_or_else(|_| "9".to_string())
+        .parse()
+        .unwrap_or(9);
+
     let odoo = OdooConfig {
         url: env::var("ODOO_URL").unwrap_or_default(),
         database: env::var("ODOO_DB").unwrap_or_default(),
@@ -90,6 +111,9 @@ pub fn load_config() -> Config {
         gemini_primary_model,
         gemini_fallback_model,
         odoo,
+        qr_prefixes,
+        qr_tenant_suffix,
+        qr_iv_length,
     }
 }
 
