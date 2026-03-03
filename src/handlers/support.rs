@@ -523,6 +523,7 @@ async fn download_and_save_attachment(
             "scraper",
             &format!("support_thread:{}", doc_id),
             None,
+            None, // no claimed_id for server-side imports
         )
         .await?;
 

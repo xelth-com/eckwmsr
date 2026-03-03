@@ -42,6 +42,7 @@ pub async fn handle_image_upload(
     let mut scan_mode = String::new();
     let mut barcode_data = String::new();
     let mut order_id = String::new();
+    let mut image_id = String::new();
 
     while let Some(field) = multipart
         .next_field()
@@ -76,6 +77,7 @@ pub async fn handle_image_upload(
             "scanMode" => scan_mode = field.text().await.unwrap_or_default(),
             "barcodeData" => barcode_data = field.text().await.unwrap_or_default(),
             "orderId" => order_id = field.text().await.unwrap_or_default(),
+            "imageId" => image_id = field.text().await.unwrap_or_default(),
             _ => {}
         }
     }
@@ -89,6 +91,7 @@ pub async fn handle_image_upload(
         format!("{}:{}", scan_mode, order_id)
     };
 
+    let claimed = if image_id.is_empty() { None } else { Some(image_id.as_str()) };
     let file_res = state
         .file_store
         .save_file(
@@ -99,9 +102,16 @@ pub async fn handle_image_upload(
             &device_id,
             &context_str,
             avatar_data,
+            claimed,
         )
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        .map_err(|e| {
+            if e.contains("CAS verification failed") {
+                (StatusCode::BAD_REQUEST, e)
+            } else {
+                (StatusCode::INTERNAL_SERVER_ERROR, e)
+            }
+        })?;
 
     // --- AUTO-LINKING LOGIC (Smart Bind) ---
     let barcode_data = barcode_data.trim();
