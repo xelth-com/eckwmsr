@@ -1,46 +1,38 @@
-# Task Complete: Binary SmartTag Encryption with Dynamic IV Length
+# Task Complete: Twenty CRM API Client and Scan Routing
 
-## Date: 2026-03-03
+## Date: 2026-03-04
 
 ### Status
-✅ **COMPLETE — SmartTag encrypt/decrypt implemented, all 13 tests passing**
+✅ **COMPLETE — TwentyClient implemented, scan handler routes company/person/opp prefixes**
 
 ---
 
 ## What Was Done
 
 ### 1. Config (`src/config.rs`)
-- Added `qr_prefixes: Vec<String>` — parsed from `QR_PREFIXES` env (comma-separated, default `ECK1.COM/`)
-- Added `qr_tenant_suffix: String` — from `QR_TENANT_SUFFIX` env (default `IB`)
-- Added `qr_iv_length: usize` — from `QR_IV_LENGTH` env (default `9`)
+- Added `TwentyConfig` struct with `url` and `api_key`
+- Parsed from `TWENTY_URL` and `TWENTY_API_KEY` env vars
+- Added `twenty: TwentyConfig` to main `Config` struct
 
-### 2. SmartTag (`src/utils/smart_code.rs`)
-- `SmartTag` struct: `uuid: [u8; 16]`, `entity_type: u8`, `flags: u16`
-- `to_bytes() -> [u8; 19]` and `from_bytes(&[u8; 19])` (flags big-endian)
-- Entity type constants: WMS (0x00–0x05), Twenty CRM (0x10–0x12), Odoo (0x20–0x21)
+### 2. TwentyClient (`src/services/twenty.rs`)
+- REST client with `reqwest::Client`, Bearer auth header
+- `get_company(uuid)` → `GET {url}/rest/companies/{uuid}`
+- `get_person(uuid)` → `GET {url}/rest/people/{uuid}`
+- `get_opportunity(uuid)` → `GET {url}/rest/opportunities/{uuid}`
+- Shared `get_entity()` helper for DRY endpoint handling
 
-### 3. Binary Encryption (`src/utils/encryption.rs`)
-- **`eck_binary_encrypt(tag, prefix, suffix, iv_len, key_hex)`**:
-  - Random IV string of `iv_len` Base32 chars
-  - Nonce = SHA-256(iv_string)[:12]
-  - AES-192-GCM encrypts 19 bytes → 35 bytes → 56 Base32 chars (constant)
-  - Returns: `{prefix}{56ch data}{iv_string}{suffix}`
-- **`eck_binary_decrypt(barcode, prefixes, suffix, key_hex)`**:
-  - Strips prefix + suffix, first 56 chars = data, remainder = iv_string
-  - Auto-detects IV length → old QR codes remain valid after config change
+### 3. AppState (`src/db.rs`)
+- Added `twenty_client: Option<TwentyClient>` field
 
-### 4. QR Layout Math
-```
-Payload:    16 (UUID) + 1 (type) + 2 (flags) = 19 bytes
-Encrypted:  19 + 16 (GCM tag) = 35 bytes
-Encoded:    35 * 8 / 5 = 56 Base32 chars (constant)
-QR String:  9 (prefix) + 56 (data) + 9 (iv) + 2 (suffix) = 76 chars
-QR V3 Max:  77 chars alphanumeric ✓
-```
+### 4. Initialization (`src/main.rs`)
+- Conditional init: creates TwentyClient only when both `TWENTY_URL` and `TWENTY_API_KEY` are set
 
-### 5. Tests (13 total, all pass)
-- SmartTag: roundtrip, big-endian flags
-- Encryption: roundtrip, different IV lengths (5 & 12), multiple prefixes, wrong key rejection, wrong suffix rejection, Base32 35-byte roundtrip, QR V3 fit
+### 5. Scan Handler (`src/handlers/scan.rs`)
+- Added `try_twenty_lookup()` before existing prefix matching
+- Routes `company-{uuid}`, `person-{uuid}`, `opp-{uuid}` barcodes to Twenty API
+- Returns entity data with display name (handles company `name` and person `firstName`/`lastName`)
+- Returns "not configured" error if TwentyClient is None
+- Returns "not found" on API errors
 
 ---
 
@@ -48,13 +40,15 @@ QR V3 Max:  77 chars alphanumeric ✓
 
 | File | Change |
 |------|--------|
-| `src/config.rs` | +3 fields: `qr_prefixes`, `qr_tenant_suffix`, `qr_iv_length` |
-| `src/utils/smart_code.rs` | +`SmartTag` struct, entity constants, `to_bytes`/`from_bytes`, 2 tests |
-| `src/utils/encryption.rs` | +`eck_binary_encrypt`, `eck_binary_decrypt`, helpers, 7 tests |
+| `src/config.rs` | +`TwentyConfig` struct, parsed from env |
+| `src/services/twenty.rs` | **NEW** — REST client with company/person/opportunity endpoints |
+| `src/services/mod.rs` | +`pub mod twenty` |
+| `src/db.rs` | +`twenty_client: Option<TwentyClient>` on AppState |
+| `src/main.rs` | Conditional TwentyClient init, passed to AppState |
+| `src/handlers/scan.rs` | +`try_twenty_lookup()` routing for CRM entity prefixes |
 
-## Build & Test
-- `cargo check` — **OK**
-- `cargo test` — **13 passed** (smart_code + encryption)
+## Build
+- `cargo check` — **OK** (no new warnings)
 
 ---
 

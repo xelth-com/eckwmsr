@@ -53,8 +53,14 @@ pub async fn handle_scan(
         });
     }
 
+    info!("[SCAN] Received barcode: {}", barcode);
+
+    // Check for SmartTag entity prefixes (company-uuid, person-uuid, opp-uuid)
+    if let Some(resp) = try_twenty_lookup(&barcode, &state, &payload).await {
+        return Json(resp);
+    }
+
     let prefix = barcode.chars().next().unwrap_or('_');
-    info!("[SCAN] Received barcode: {} (prefix: {})", barcode, prefix);
 
     let mut resp = ScanResponse {
         r#type: "unknown".into(),
@@ -185,4 +191,94 @@ pub async fn handle_scan(
     }
 
     Json(resp)
+}
+
+/// Try to route SmartTag entity prefixes (company-, person-, opp-) to Twenty CRM.
+async fn try_twenty_lookup(
+    barcode: &str,
+    state: &Arc<AppState>,
+    payload: &ScanRequest,
+) -> Option<ScanResponse> {
+    let (entity_type, uuid) = if let Some(uuid) = barcode.strip_prefix("company-") {
+        ("company", uuid)
+    } else if let Some(uuid) = barcode.strip_prefix("person-") {
+        ("person", uuid)
+    } else if let Some(uuid) = barcode.strip_prefix("opp-") {
+        ("opportunity", uuid)
+    } else {
+        return None;
+    };
+
+    let client = match &state.twenty_client {
+        Some(c) => c,
+        None => {
+            return Some(ScanResponse {
+                r#type: entity_type.into(),
+                message: "Twenty CRM integration not configured".into(),
+                action: "error".into(),
+                data: None,
+                ai_interaction: None,
+                msg_id: payload.msg_id.clone(),
+            });
+        }
+    };
+
+    let result = match entity_type {
+        "company" => client.get_company(uuid).await,
+        "person" => client.get_person(uuid).await,
+        "opportunity" => client.get_opportunity(uuid).await,
+        _ => unreachable!(),
+    };
+
+    match result {
+        Ok(data) => {
+            let name = data["name"]
+                .as_str()
+                .or_else(|| {
+                    // People may have firstName + lastName instead of name
+                    let first = data["name"]["firstName"].as_str().unwrap_or("");
+                    let last = data["name"]["lastName"].as_str().unwrap_or("");
+                    if first.is_empty() && last.is_empty() {
+                        None
+                    } else {
+                        // Return None here — we'll build it below
+                        None
+                    }
+                })
+                .unwrap_or(entity_type);
+
+            // Build display name for people (firstName + lastName)
+            let display_name = if entity_type == "person" {
+                let first = data["name"]["firstName"].as_str().unwrap_or("");
+                let last = data["name"]["lastName"].as_str().unwrap_or("");
+                if !first.is_empty() || !last.is_empty() {
+                    format!("{} {}", first, last).trim().to_string()
+                } else {
+                    name.to_string()
+                }
+            } else {
+                name.to_string()
+            };
+
+            Some(ScanResponse {
+                r#type: entity_type.into(),
+                message: display_name,
+                action: "found".into(),
+                data: Some(data),
+                ai_interaction: None,
+                msg_id: payload.msg_id.clone(),
+            })
+        }
+        Err(e) => {
+            error!("[SCAN] Twenty {} lookup failed: {}", entity_type, e);
+            Some(ScanResponse {
+                r#type: entity_type.into(),
+                message: format!("{} not found", entity_type),
+                action: "not_found".into(),
+                data: None,
+                ai_interaction: None,
+                msg_id: payload.msg_id.clone(),
+            })
+        }
+    }
 }

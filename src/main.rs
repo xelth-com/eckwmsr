@@ -128,6 +128,18 @@ async fn main() {
     };
     let odoo_mutex = odoo_client.map(|c| tokio::sync::Mutex::new(c));
 
+    // Initialize Twenty CRM client (optional)
+    let twenty_client = if !cfg.twenty.url.is_empty() && !cfg.twenty.api_key.is_empty() {
+        info!("Twenty CRM: Configured for {}", cfg.twenty.url);
+        Some(services::twenty::TwentyClient::new(
+            cfg.twenty.url.clone(),
+            cfg.twenty.api_key.clone(),
+        ))
+    } else {
+        info!("Twenty CRM: Not configured");
+        None
+    };
+
     // Initialize File Store (CAS)
     let file_store = services::filestore::FileStoreService::new(".");
 
@@ -212,6 +224,7 @@ async fn main() {
         _embedded_pg: embedded_pg,
         pairing_sessions: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
         odoo_client: odoo_mutex,
+        twenty_client,
     });
 
     // Start heartbeat background task (every 5 minutes)

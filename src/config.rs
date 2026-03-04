@@ -19,6 +19,7 @@ pub struct Config {
     pub gemini_primary_model: String,
     pub gemini_fallback_model: String,
     pub odoo: OdooConfig,
+    pub twenty: TwentyConfig,
     /// QR code prefixes to match during decryption (e.g. ["ECK1.COM/"])
     pub qr_prefixes: Vec<String>,
     /// Tenant suffix appended to QR codes (e.g. "IB")
@@ -33,6 +34,12 @@ pub struct OdooConfig {
     pub database: String,
     pub username: String,
     pub password: String,
+}
+
+#[derive(Clone, Default)]
+pub struct TwentyConfig {
+    pub url: String,
+    pub api_key: String,
 }
 
 pub fn load_config() -> Config {
@@ -97,6 +104,11 @@ pub fn load_config() -> Config {
         password: env::var("ODOO_PASSWORD").unwrap_or_default(),
     };
 
+    let twenty = TwentyConfig {
+        url: env::var("TWENTY_URL").unwrap_or_default(),
+        api_key: env::var("TWENTY_API_KEY").unwrap_or_default(),
+    };
+
     Config {
         port,
         instance_id,
@@ -111,6 +123,7 @@ pub fn load_config() -> Config {
         gemini_primary_model,
         gemini_fallback_model,
         odoo,
+        twenty,
         qr_prefixes,
         qr_tenant_suffix,
         qr_iv_length,

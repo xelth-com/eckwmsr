@@ -14,6 +14,7 @@ use crate::handlers::ws::WsHub;
 use crate::models;
 use crate::services::filestore::FileStoreService;
 use crate::services::odoo::OdooClient;
+use crate::services::twenty::TwentyClient;
 use crate::sync::engine::SyncEngine;
 use crate::utils::identity::ServerIdentity;
 
@@ -48,6 +49,8 @@ pub struct AppState {
     pub pairing_sessions: Arc<RwLock<HashMap<String, PairingSession>>>,
     /// Odoo JSON-RPC client (None if not configured)
     pub odoo_client: Option<tokio::sync::Mutex<OdooClient>>,
+    /// Twenty CRM REST client (None if not configured)
+    pub twenty_client: Option<TwentyClient>,
 }
 
 pub async fn connect(database_url: &str) -> Result<DatabaseConnection, sea_orm::DbErr> {
