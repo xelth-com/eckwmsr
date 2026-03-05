@@ -4,11 +4,13 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{error, info};
 
+use uuid::Uuid;
+
 use crate::{
     ai::prompts::AGENT_SYSTEM_PROMPT,
     db::AppState,
-    models::{location, product, product_alias},
-    utils::smart_code::{decode_smart_box, decode_smart_item, decode_smart_label, decode_smart_place},
+    models::{item, location, product, product_alias},
+    utils::smart_code::decode_smart_label,
 };
 
 #[derive(Deserialize)]
@@ -60,11 +62,85 @@ pub async fn handle_scan(
         return Json(resp);
     }
 
+    // V2 Binary SmartTags: single-char prefix + '-' + UUID (e.g. i-UUID, p-UUID, b-UUID)
+    if barcode.len() >= 38 && barcode.as_bytes().get(1) == Some(&b'-') {
+        if let Ok(native_id) = Uuid::parse_str(&barcode[2..]) {
+            let v2_prefix = barcode.chars().next().unwrap_or('_');
+            match v2_prefix {
+                'i' | 'I' => {
+                    let mut resp = ScanResponse {
+                        r#type: "item".into(),
+                        message: "Item found".into(),
+                        action: "found".into(),
+                        data: None,
+                        ai_interaction: None,
+                        msg_id: payload.msg_id.clone(),
+                    };
+                    match item::Entity::find_by_id(native_id)
+                        .filter(item::Column::DeletedAt.is_null())
+                        .one(&state.db)
+                        .await
+                    {
+                        Ok(Some(found)) => {
+                            if let Some(ref name) = found.name {
+                                resp.message = name.clone();
+                            }
+                            resp.data = Some(serde_json::to_value(&found).unwrap_or_default());
+                        }
+                        _ => {
+                            resp.action = "not_found".into();
+                            resp.message = format!("Item {} not in DB", native_id);
+                        }
+                    }
+                    return Json(resp);
+                }
+                'p' | 'P' => {
+                    let mut resp = ScanResponse {
+                        r#type: "place".into(),
+                        message: "Location found".into(),
+                        action: "found".into(),
+                        data: None,
+                        ai_interaction: None,
+                        msg_id: payload.msg_id.clone(),
+                    };
+                    // V2 place tags use UUID — try location lookup by barcode string
+                    match location::Entity::find()
+                        .filter(location::Column::Barcode.eq(&barcode))
+                        .one(&state.db)
+                        .await
+                    {
+                        Ok(Some(loc)) => {
+                            resp.message = loc.complete_name.clone();
+                            resp.data = Some(serde_json::to_value(&loc).unwrap_or_default());
+                        }
+                        _ => {
+                            resp.action = "not_found".into();
+                            resp.message = format!("Location {} not in DB", native_id);
+                        }
+                    }
+                    return Json(resp);
+                }
+                'b' | 'B' => {
+                    // V2 box tag — return decoded info with native UUID
+                    return Json(ScanResponse {
+                        r#type: "box".into(),
+                        message: format!("Box {}", native_id),
+                        action: "decoded".into(),
+                        data: Some(serde_json::json!({ "id": native_id.to_string() })),
+                        ai_interaction: None,
+                        msg_id: payload.msg_id.clone(),
+                    });
+                }
+                _ => {} // fall through to legacy
+            }
+        }
+    }
+
     let prefix = barcode.chars().next().unwrap_or('_');
 
     let mut resp = ScanResponse {
         r#type: "unknown".into(),
-        message: "Unknown or legacy barcode".into(),
+        message: "Unknown barcode".into(),
         action: "error".into(),
         data: None,
         ai_interaction: None,
@@ -72,49 +148,6 @@ pub async fn handle_scan(
     };
 
     match prefix {
-        'p' | 'P' => {
-            if let Ok(data) = decode_smart_place(&barcode.to_lowercase()) {
-                if let Ok(Some(loc)) = location::Entity::find_by_id(data.location_id)
-                    .one(&state.db)
-                    .await
-                {
-                    resp.r#type = "place".into();
-                    resp.action = "found".into();
-                    resp.message = loc.complete_name.clone();
-                    resp.data = Some(serde_json::to_value(&loc).unwrap_or_default());
-                } else {
-                    resp.r#type = "place".into();
-                    resp.action = "not_found".into();
-                    resp.message = "Location not found in DB".into();
-                }
-            }
-        }
-        'i' | 'I' => {
-            if let Ok(data) = decode_smart_item(&barcode) {
-                resp.r#type = "item".into();
-                resp.action = "decoded".into();
-                resp.message = "Item scanned".into();
-                resp.data = Some(serde_json::json!({
-                    "serial": data.serial,
-                    "ref_id": data.ref_id
-                }));
-            }
-        }
-        'b' | 'B' => {
-            if let Ok(data) = decode_smart_box(&barcode) {
-                resp.r#type = "box".into();
-                resp.action = "decoded".into();
-                resp.message = "Box scanned".into();
-                resp.data = Some(serde_json::json!({
-                    "length": data.length,
-                    "width": data.width,
-                    "height": data.height,
-                    "weight": data.weight,
-                    "type": data.pkg_type,
-                    "serial": data.serial
-                }));
-            }
-        }
         'l' | 'L' => {
             if let Ok(data) = decode_smart_label(&barcode) {
                 resp.r#type = "label".into();
