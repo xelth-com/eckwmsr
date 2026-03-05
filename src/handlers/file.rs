@@ -122,18 +122,34 @@ pub async fn handle_image_upload(
 
         // If this is a smart item code, resolve to the item entity instead of product
         if res_model == "product" && barcode_data.starts_with('i') {
-            if let Ok(Some(found_item)) = item::Entity::find()
-                .filter(item::Column::PrimaryBarcode.eq(barcode_data))
-                .filter(item::Column::DeletedAt.is_null())
-                .one(&state.db)
-                .await
-            {
+            // V2 SmartTag: `i-UUID` → search by native UUID (PK)
+            // Legacy: `i000123` → search by primary_barcode
+            let found_item = if barcode_data.len() >= 38 && barcode_data.as_bytes().get(1) == Some(&b'-') {
+                if let Ok(native_id) = Uuid::parse_str(&barcode_data[2..]) {
+                    item::Entity::find_by_id(native_id)
+                        .filter(item::Column::DeletedAt.is_null())
+                        .one(&state.db)
+                        .await
+                        .ok()
+                        .flatten()
+                } else { None }
+            } else {
+                item::Entity::find()
+                    .filter(item::Column::PrimaryBarcode.eq(barcode_data))
+                    .filter(item::Column::DeletedAt.is_null())
+                    .one(&state.db)
+                    .await
+                    .ok()
+                    .flatten()
+            };
+
+            if let Some(found) = found_item {
                 res_model = "item";
-                res_id = found_item.id.to_string();
+                res_id = found.id.to_string();
 
                 // Set main_photo_id on item if not yet set
-                if found_item.main_photo_id.is_none() {
-                    let mut am: item::ActiveModel = found_item.into();
+                if found.main_photo_id.is_none() {
+                    let mut am: item::ActiveModel = found.into();
                     am.main_photo_id = Set(Some(file_res.id));
                     am.updated_at = Set(Utc::now());
                     let _ = am.update(&state.db).await;

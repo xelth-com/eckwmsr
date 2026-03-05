@@ -130,12 +130,50 @@ impl RepairService {
         Ok(())
     }
 
-    /// Find an existing item by barcode or create a new one
+    /// Try to extract a native UUID from V2 SmartTag barcodes like `i-UUID` or `b-UUID`.
+    /// Returns Some(uuid) if the barcode is in prefix-UUID format (prefix is 1 char + '-').
+    fn extract_native_uuid(barcode: &str) -> Option<Uuid> {
+        if barcode.len() >= 38 && barcode.as_bytes().get(1) == Some(&b'-') {
+            Uuid::parse_str(&barcode[2..]).ok()
+        } else {
+            None
+        }
+    }
+
+    /// Find an existing item by barcode or create a new one.
+    /// V2 SmartTags (e.g. `i-UUID`) use the native UUID as the item's PK.
+    /// Legacy barcodes (EAN, `i000123`) fall back to primary_barcode search.
     async fn find_or_create_item(
         state: &Arc<AppState>,
         barcode: &str,
     ) -> Result<item::Model, anyhow::Error> {
-        // Try primary_barcode first (fast, indexed)
+        // Fast path: V2 SmartTag with native UUID → search by PK
+        if let Some(native_id) = Self::extract_native_uuid(barcode) {
+            if let Some(found) = item::Entity::find_by_id(native_id)
+                .filter(item::Column::DeletedAt.is_null())
+                .one(&state.db)
+                .await?
+            {
+                return Ok(found);
+            }
+            // Not found — create with the native UUID as PK
+            let new_item = item::ActiveModel {
+                id: Set(native_id),
+                primary_barcode: Set(barcode.to_string()),
+                barcodes: Set(serde_json::json!([barcode])),
+                name: Set(None),
+                main_photo_id: Set(None),
+                metadata: Set(serde_json::json!({})),
+                created_at: Set(Utc::now()),
+                updated_at: Set(Utc::now()),
+                deleted_at: Set(None),
+            };
+            let inserted = new_item.insert(&state.db).await?;
+            info!("Created item {} (native UUID from SmartTag) for {}", inserted.id, barcode);
+            return Ok(inserted);
+        }
+
+        // Legacy path: search by primary_barcode (indexed)
         if let Some(found) = item::Entity::find()
             .filter(item::Column::PrimaryBarcode.eq(barcode))
             .filter(item::Column::DeletedAt.is_null())
@@ -158,7 +196,7 @@ impl RepairService {
             return Ok(found);
         }
 
-        // Create new item
+        // Create new item with random UUID (legacy barcode)
         let new_item = item::ActiveModel {
             id: Set(Uuid::new_v4()),
             primary_barcode: Set(barcode.to_string()),
@@ -172,7 +210,7 @@ impl RepairService {
         };
 
         let inserted = new_item.insert(&state.db).await?;
-        info!("Created new item {} for barcode {}", inserted.id, barcode);
+        info!("Created item {} (random UUID, legacy barcode) for {}", inserted.id, barcode);
         Ok(inserted)
     }
 
