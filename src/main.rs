@@ -373,7 +373,7 @@ async fn main() {
                 .unwrap_or_default();
             for node in &nodes {
                 if node.base_url.is_empty() { continue; }
-                for entity_type in &["user", "order", "document", "file_resource", "attachment"] {
+                for entity_type in &["user", "order", "document", "file_resource", "attachment", "item", "order_item_event"] {
                     match startup_sync_state.sync_engine.full_pull_from_peer(&node.base_url, entity_type).await {
                         Ok(count) if count > 0 => {
                             info!("Startup sync: pulled {} {} from {}", count, entity_type, node.instance_id);

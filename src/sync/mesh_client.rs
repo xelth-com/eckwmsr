@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::handlers::mesh_sync::{PullRequest, PullResponse, PushPayload, SyncableUser, SyncableOrder, SyncableDocument, SyncableFileResource};
-use crate::models::{attachment, location, product, stock_picking_delivery};
+use crate::models::{attachment, item, location, order_item_event, product, stock_picking_delivery};
 use crate::sync::merkle_tree::{MerkleNode, MerkleRequest};
 
 /// HTTP client for communicating with peer mesh nodes
@@ -82,6 +82,8 @@ impl MeshClient {
         documents: Vec<SyncableDocument>,
         file_resources: Vec<SyncableFileResource>,
         attachments: Vec<attachment::Model>,
+        items: Vec<item::Model>,
+        order_item_events: Vec<order_item_event::Model>,
     ) -> Result<()> {
         let url = format!("{}/mesh/push", self.base_url);
         let payload = PushPayload {
@@ -93,6 +95,8 @@ impl MeshClient {
             documents,
             file_resources,
             attachments,
+            items,
+            order_item_events,
         };
 
         let resp = self.client.post(&url).json(&payload).send().await?;

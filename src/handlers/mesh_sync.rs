@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::db::AppState;
-use crate::models::{attachment, document, file_resource, location, mesh_node, order, product, stock_picking_delivery, user};
+use crate::models::{attachment, document, file_resource, item, location, mesh_node, order, order_item_event, product, stock_picking_delivery, user};
 use crate::sync::merkle_tree::{MerkleNode, MerkleRequest, MerkleTreeService};
 use crate::sync::mesh_client::MeshClient;
 
@@ -240,6 +240,10 @@ pub struct PullResponse {
     pub file_resources: Vec<SyncableFileResource>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub attachments: Vec<attachment::Model>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub items: Vec<item::Model>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub order_item_events: Vec<order_item_event::Model>,
 }
 
 /// POST /mesh/pull — Fetch specific entities by ID for sync
@@ -257,6 +261,8 @@ pub async fn pull_handler(
         documents: vec![],
         file_resources: vec![],
         attachments: vec![],
+        items: vec![],
+        order_item_events: vec![],
     };
 
     match payload.entity_type.as_str() {
@@ -303,6 +309,22 @@ pub async fn pull_handler(
                 query = query.filter(attachment::Column::Id.is_in(parsed_uuids));
             }
             resp.attachments = query.all(&state.db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        }
+        "item" => {
+            let parsed_uuids: Vec<uuid::Uuid> = payload.ids.iter().filter_map(|s| s.parse().ok()).collect();
+            let mut query = item::Entity::find();
+            if !parsed_uuids.is_empty() {
+                query = query.filter(item::Column::Id.is_in(parsed_uuids));
+            }
+            resp.items = query.all(&state.db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        }
+        "order_item_event" => {
+            let parsed_uuids: Vec<uuid::Uuid> = payload.ids.iter().filter_map(|s| s.parse().ok()).collect();
+            let mut query = order_item_event::Entity::find();
+            if !parsed_uuids.is_empty() {
+                query = query.filter(order_item_event::Column::Id.is_in(parsed_uuids));
+            }
+            resp.order_item_events = query.all(&state.db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         }
         _ => {
             // Products, locations, shipments use i64 IDs; empty ids = return all
@@ -376,6 +398,10 @@ pub struct PushPayload {
     pub file_resources: Vec<SyncableFileResource>,
     #[serde(default)]
     pub attachments: Vec<attachment::Model>,
+    #[serde(default)]
+    pub items: Vec<item::Model>,
+    #[serde(default)]
+    pub order_item_events: Vec<order_item_event::Model>,
 }
 
 /// POST /mesh/push — Apply incoming entities (upsert)
@@ -616,6 +642,42 @@ pub async fn push_handler(
         applied += 1;
     }
 
+    // Upsert items (mutable — main_photo_id, name, barcodes can change)
+    for it in payload.items {
+        let am = it.into_active_model();
+        let _ = item::Entity::insert(am)
+            .on_conflict(
+                sea_orm::sea_query::OnConflict::column(item::Column::Id)
+                    .update_columns([
+                        item::Column::PrimaryBarcode,
+                        item::Column::Barcodes,
+                        item::Column::Name,
+                        item::Column::MainPhotoId,
+                        item::Column::Metadata,
+                        item::Column::UpdatedAt,
+                        item::Column::DeletedAt,
+                    ])
+                    .to_owned(),
+            )
+            .exec(db)
+            .await;
+        applied += 1;
+    }
+
+    // Insert order_item_events (immutable event log — skip if exists)
+    for evt in payload.order_item_events {
+        let am = evt.into_active_model();
+        let _ = order_item_event::Entity::insert(am)
+            .on_conflict(
+                sea_orm::sea_query::OnConflict::column(order_item_event::Column::Id)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec(db)
+            .await;
+        applied += 1;
+    }
+
     // If any users were synced, clean up the setup account
     if applied > 0 {
         crate::db::cleanup_setup_if_real_users(db, &state.setup_password).await;
@@ -651,6 +713,7 @@ pub fn push_to_all_peers(state: Arc<AppState>, entity_type: &str, entity_id: &st
                 payload.shipments.clone(), payload.users.clone(),
                 payload.orders.clone(), payload.documents.clone(),
                 payload.file_resources.clone(), payload.attachments.clone(),
+                payload.items.clone(), payload.order_item_events.clone(),
             ).await {
                 Ok(()) => {
                     tracing::info!("Direct push {} {} to {}", entity_type, entity_id, node.instance_id);

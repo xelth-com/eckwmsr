@@ -84,7 +84,7 @@ fn push_user_to_peers(state: Arc<AppState>, user_model: user::Model) {
             if is_url_directly_reachable(&node.base_url) {
                 let client = MeshClient::new(&node.base_url);
                 match client
-                    .push_entities(vec![], vec![], vec![], vec![syncable.clone()], vec![], vec![], vec![], vec![])
+                    .push_entities(vec![], vec![], vec![], vec![syncable.clone()], vec![], vec![], vec![], vec![], vec![], vec![])
                     .await
                 {
                     Ok(()) => {

@@ -157,6 +157,7 @@ pub async fn create_order(
             products: vec![], locations: vec![], shipments: vec![], users: vec![],
             orders: vec![crate::handlers::mesh_sync::SyncableOrder::from(inserted.clone())],
             documents: vec![], file_resources: vec![], attachments: vec![],
+            items: vec![], order_item_events: vec![],
         };
         crate::handlers::mesh_sync::push_to_all_peers(state.clone(), "order", &inserted.id.to_string(), payload);
     }
@@ -212,6 +213,7 @@ pub async fn update_order(
             products: vec![], locations: vec![], shipments: vec![], users: vec![],
             orders: vec![crate::handlers::mesh_sync::SyncableOrder::from(updated.clone())],
             documents: vec![], file_resources: vec![], attachments: vec![],
+            items: vec![], order_item_events: vec![],
         };
         crate::handlers::mesh_sync::push_to_all_peers(state.clone(), "order", &updated.id.to_string(), payload);
     }

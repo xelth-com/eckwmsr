@@ -138,6 +138,8 @@ pub async fn create_schema(db: &DatabaseConnection) -> Result<(), sea_orm::DbErr
     create_table_if_not_exists!(models::document::Entity);
     create_table_if_not_exists!(models::mesh_node::Entity);
     create_table_if_not_exists!(models::registered_device::Entity);
+    create_table_if_not_exists!(models::item::Entity);
+    create_table_if_not_exists!(models::order_item_event::Entity);
     info!("Schema creation complete.");
 
     Ok(())

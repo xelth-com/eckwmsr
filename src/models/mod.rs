@@ -22,3 +22,5 @@ pub mod inventory_discrepancy;
 pub mod document;
 pub mod mesh_node;
 pub mod registered_device;
+pub mod item;
+pub mod order_item_event;

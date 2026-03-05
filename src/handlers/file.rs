@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::{
     db::AppState,
-    models::{attachment, file_resource},
+    models::{attachment, file_resource, item},
     utils::smart_code::generate_smart_item,
 };
 
@@ -118,15 +118,51 @@ pub async fn handle_image_upload(
     let mut sync_attachments: Vec<attachment::Model> = vec![];
 
     if !barcode_data.is_empty() {
-        let (res_model, res_id) = resolve_barcode_to_entity(barcode_data);
+        let (mut res_model, mut res_id) = resolve_barcode_to_entity(barcode_data);
+
+        // If this is a smart item code, resolve to the item entity instead of product
+        if res_model == "product" && barcode_data.starts_with('i') {
+            if let Ok(Some(found_item)) = item::Entity::find()
+                .filter(item::Column::PrimaryBarcode.eq(barcode_data))
+                .filter(item::Column::DeletedAt.is_null())
+                .one(&state.db)
+                .await
+            {
+                res_model = "item";
+                res_id = found_item.id.to_string();
+
+                // Set main_photo_id on item if not yet set
+                if found_item.main_photo_id.is_none() {
+                    let mut am: item::ActiveModel = found_item.into();
+                    am.main_photo_id = Set(Some(file_res.id));
+                    am.updated_at = Set(Utc::now());
+                    let _ = am.update(&state.db).await;
+                }
+            }
+        }
 
         if !res_model.is_empty() {
+            // Only set is_main=true if no existing main attachment for this entity
+            let existing_main = attachment::Entity::find()
+                .filter(
+                    Condition::all()
+                        .add(attachment::Column::ResModel.eq(res_model))
+                        .add(attachment::Column::ResId.eq(&res_id))
+                        .add(attachment::Column::IsMain.eq(true))
+                        .add(attachment::Column::DeletedAt.is_null()),
+                )
+                .one(&state.db)
+                .await
+                .unwrap_or(None);
+
+            let should_be_main = existing_main.is_none();
+
             let new_attachment = attachment::ActiveModel {
                 id: Set(Uuid::new_v4()),
                 file_resource_id: Set(file_res.id),
                 res_model: Set(res_model.to_string()),
                 res_id: Set(res_id.clone()),
-                is_main: Set(true),
+                is_main: Set(should_be_main),
                 tags: Set(Some(scan_mode)),
                 comment: Set(None),
                 created_at: Set(Utc::now()),
@@ -136,7 +172,7 @@ pub async fn handle_image_upload(
 
             match new_attachment.insert(&state.db).await {
                 Ok(inserted_att) => {
-                    info!("Linked file {} to {}:{}", file_res.id, res_model, res_id);
+                    info!("Linked file {} to {}:{} (is_main={})", file_res.id, res_model, res_id, should_be_main);
                     sync_attachments.push(inserted_att);
                 }
                 Err(e) => warn!("Failed to auto-link attachment: {}", e),
@@ -151,6 +187,7 @@ pub async fn handle_image_upload(
             orders: vec![], documents: vec![],
             file_resources: vec![crate::handlers::mesh_sync::SyncableFileResource::from(file_res.clone())],
             attachments: sync_attachments,
+            items: vec![], order_item_events: vec![],
         };
         crate::handlers::mesh_sync::push_to_all_peers(state.clone(), "file_resource", &file_res.id.to_string(), payload);
     }

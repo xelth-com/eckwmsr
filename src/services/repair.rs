@@ -1,7 +1,7 @@
 use crate::db::AppState;
-use crate::models::{device_intake, order, product_alias};
+use crate::models::{device_intake, item, order, order_item_event, product_alias};
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, Condition, DatabaseBackend, EntityTrait, FromQueryResult, PaginatorTrait, QueryFilter, Set, Statement};
 use std::sync::Arc;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -130,12 +130,61 @@ impl RepairService {
         Ok(())
     }
 
+    /// Find an existing item by barcode or create a new one
+    async fn find_or_create_item(
+        state: &Arc<AppState>,
+        barcode: &str,
+    ) -> Result<item::Model, anyhow::Error> {
+        // Try primary_barcode first (fast, indexed)
+        if let Some(found) = item::Entity::find()
+            .filter(item::Column::PrimaryBarcode.eq(barcode))
+            .filter(item::Column::DeletedAt.is_null())
+            .one(&state.db)
+            .await?
+        {
+            return Ok(found);
+        }
+
+        // Fallback: search JSONB barcodes array via @> containment
+        let json_needle = serde_json::json!([barcode]).to_string();
+        if let Some(found) = item::Model::find_by_statement(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT * FROM items WHERE barcodes @> $1::jsonb AND deleted_at IS NULL LIMIT 1",
+            [json_needle.into()],
+        ))
+        .one(&state.db)
+        .await?
+        {
+            return Ok(found);
+        }
+
+        // Create new item
+        let new_item = item::ActiveModel {
+            id: Set(Uuid::new_v4()),
+            primary_barcode: Set(barcode.to_string()),
+            barcodes: Set(serde_json::json!([barcode])),
+            name: Set(None),
+            main_photo_id: Set(None),
+            metadata: Set(serde_json::json!({})),
+            created_at: Set(Utc::now()),
+            updated_at: Set(Utc::now()),
+            deleted_at: Set(None),
+        };
+
+        let inserted = new_item.insert(&state.db).await?;
+        info!("Created new item {} for barcode {}", inserted.id, barcode);
+        Ok(inserted)
+    }
+
     /// Process device_bound handles the auto-creation of a Repair Order when a PDA binds a slot
     pub async fn process_device_bind(
         state: Arc<AppState>,
         serial_number: String,
     ) -> Result<(), anyhow::Error> {
         info!("RepairService: Processing device bind for {}", serial_number);
+
+        // Find or create item for this barcode
+        let item_record = Self::find_or_create_item(&state, &serial_number).await?;
 
         // Check if an active order already exists for this serial number
         let existing_order = order::Entity::find()
@@ -189,16 +238,32 @@ impl RepairService {
             ..Default::default()
         };
 
-        let inserted = new_order.insert(&state.db).await?;
-        info!("Created new auto-repair order #{} (ID: {}) for serial {}", order_number, inserted.id, serial_number);
+        let inserted_order = new_order.insert(&state.db).await?;
+        info!("Created auto-repair order #{} (ID: {}) for serial {}", order_number, inserted_order.id, serial_number);
 
-        // Push order to mesh peers
+        // Create order_item_event: item added to this order
+        let event = order_item_event::ActiveModel {
+            id: Set(Uuid::new_v4()),
+            order_id: Set(inserted_order.id),
+            item_id: Set(item_record.id),
+            event_type: Set("added".to_string()),
+            user_id: Set(None),
+            notes: Set(Some("Auto-created from PDA repair slot bind".to_string())),
+            created_at: Set(Utc::now()),
+            deleted_at: Set(None),
+        };
+        let inserted_event = event.insert(&state.db).await?;
+        info!("Created order_item_event: item {} added to order {}", item_record.id, inserted_order.id);
+
+        // Push order + item + event to mesh peers
         let payload = crate::handlers::mesh_sync::PushPayload {
             products: vec![], locations: vec![], shipments: vec![], users: vec![],
-            orders: vec![crate::handlers::mesh_sync::SyncableOrder::from(inserted.clone())],
+            orders: vec![crate::handlers::mesh_sync::SyncableOrder::from(inserted_order.clone())],
             documents: vec![], file_resources: vec![], attachments: vec![],
+            items: vec![item_record],
+            order_item_events: vec![inserted_event],
         };
-        crate::handlers::mesh_sync::push_to_all_peers(state.clone(), "order", &inserted.id.to_string(), payload);
+        crate::handlers::mesh_sync::push_to_all_peers(state.clone(), "order", &inserted_order.id.to_string(), payload);
 
         Ok(())
     }

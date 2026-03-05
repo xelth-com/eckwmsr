@@ -93,6 +93,7 @@ pub async fn handle_repair_event(
             products: vec![], locations: vec![], shipments: vec![], users: vec![],
             orders: vec![], documents: vec![crate::handlers::mesh_sync::SyncableDocument::from(dm)],
             file_resources: vec![], attachments: vec![],
+            items: vec![], order_item_events: vec![],
         };
         crate::handlers::mesh_sync::push_to_all_peers(state.clone(), "document", &doc_id.to_string(), payload);
     }

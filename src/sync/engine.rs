@@ -7,7 +7,7 @@ use tracing::{error, info, warn};
 use std::collections::BTreeMap;
 
 use crate::models::sync_packet::EntityMetadata;
-use crate::models::{attachment, document, file_resource, location, order, product, stock_picking_delivery, user};
+use crate::models::{attachment, document, file_resource, item, location, order, order_item_event, product, stock_picking_delivery, user};
 use crate::handlers::mesh_sync::{SyncableUser, SyncableOrder, SyncableDocument, SyncableFileResource};
 use crate::sync::mesh_client::MeshClient;
 use crate::sync::merkle_tree::{compare_trees, MerkleRequest, MerkleTreeService};
@@ -260,6 +260,36 @@ impl SyncEngine {
         Ok(())
     }
 
+    async fn upsert_item(&self, it: item::Model) -> Result<(), DbErr> {
+        let am = it.into_active_model();
+        let _ = item::Entity::insert(am)
+            .on_conflict(
+                OnConflict::column(item::Column::Id)
+                    .update_columns([
+                        item::Column::PrimaryBarcode,
+                        item::Column::Barcodes,
+                        item::Column::Name,
+                        item::Column::MainPhotoId,
+                        item::Column::Metadata,
+                        item::Column::UpdatedAt,
+                        item::Column::DeletedAt,
+                    ])
+                    .to_owned(),
+            )
+            .exec(&self.db)
+            .await?;
+        Ok(())
+    }
+
+    async fn upsert_order_item_event(&self, evt: order_item_event::Model) -> Result<(), DbErr> {
+        let am = evt.into_active_model();
+        let _ = order_item_event::Entity::insert(am)
+            .on_conflict(OnConflict::column(order_item_event::Column::Id).do_nothing().to_owned())
+            .exec(&self.db)
+            .await;
+        Ok(())
+    }
+
     // --- Relay pull ---
 
     pub async fn pull_and_apply(&self) -> Result<usize, String> {
@@ -294,6 +324,8 @@ impl SyncEngine {
                 "document" => self.process_document_packet(&packet).await,
                 "file_resource" => self.process_file_resource_packet(&packet).await,
                 "attachment" => self.process_attachment_packet(&packet).await,
+                "item" => self.process_item_packet(&packet).await,
+                "order_item_event" => self.process_order_item_event_packet(&packet).await,
                 other => {
                     warn!("Unsupported entity type from relay: {}", other);
                     continue;
@@ -375,6 +407,16 @@ impl SyncEngine {
         self.upsert_attachment(data).await.map_err(|e| format!("upsert: {}", e))
     }
 
+    async fn process_item_packet(&self, packet: &crate::models::sync_packet::EncryptedSyncPacket) -> Result<(), String> {
+        let data: item::Model = self.security.decrypt_packet(packet).map_err(|e| format!("decrypt: {}", e))?;
+        self.upsert_item(data).await.map_err(|e| format!("upsert: {}", e))
+    }
+
+    async fn process_order_item_event_packet(&self, packet: &crate::models::sync_packet::EncryptedSyncPacket) -> Result<(), String> {
+        let data: order_item_event::Model = self.security.decrypt_packet(packet).map_err(|e| format!("decrypt: {}", e))?;
+        self.upsert_order_item_event(data).await.map_err(|e| format!("upsert: {}", e))
+    }
+
     // --- Relay push ---
 
     pub async fn push_entity<T: Serialize>(
@@ -437,7 +479,9 @@ impl SyncEngine {
             + response.orders.len()
             + response.documents.len()
             + response.file_resources.len()
-            + response.attachments.len();
+            + response.attachments.len()
+            + response.items.len()
+            + response.order_item_events.len();
         self.apply_pull_response(response).await?;
         info!("SyncEngine: Full pull '{}' from {} — {} entities applied", entity_type, peer_url, count);
         Ok(count)
@@ -562,6 +606,12 @@ impl SyncEngine {
         for a in resp.attachments {
             self.upsert_attachment(a).await?;
         }
+        for it in resp.items {
+            self.upsert_item(it).await?;
+        }
+        for evt in resp.order_item_events {
+            self.upsert_order_item_event(evt).await?;
+        }
         Ok(())
     }
 
@@ -581,6 +631,8 @@ impl SyncEngine {
         let mut documents = vec![];
         let mut file_resources = vec![];
         let mut attachments = vec![];
+        let mut items = vec![];
+        let mut order_item_events_vec = vec![];
 
         match entity_type {
             "user" => {
@@ -633,6 +685,24 @@ impl SyncEngine {
                         .await?;
                 }
             }
+            "item" => {
+                let parsed_uuids: Vec<uuid::Uuid> = ids.iter().filter_map(|s| s.parse().ok()).collect();
+                if !parsed_uuids.is_empty() {
+                    items = item::Entity::find()
+                        .filter(item::Column::Id.is_in(parsed_uuids))
+                        .all(&self.db)
+                        .await?;
+                }
+            }
+            "order_item_event" => {
+                let parsed_uuids: Vec<uuid::Uuid> = ids.iter().filter_map(|s| s.parse().ok()).collect();
+                if !parsed_uuids.is_empty() {
+                    order_item_events_vec = order_item_event::Entity::find()
+                        .filter(order_item_event::Column::Id.is_in(parsed_uuids))
+                        .all(&self.db)
+                        .await?;
+                }
+            }
             _ => {
                 let parsed_ids: Vec<i64> = ids.iter().filter_map(|s| s.parse().ok()).collect();
                 if parsed_ids.is_empty() { return Ok(()); }
@@ -658,7 +728,7 @@ impl SyncEngine {
         }
 
         client
-            .push_entities(products, locations, shipments, users, orders, documents, file_resources, attachments)
+            .push_entities(products, locations, shipments, users, orders, documents, file_resources, attachments, items, order_item_events_vec)
             .await?;
         Ok(())
     }
