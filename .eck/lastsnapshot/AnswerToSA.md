@@ -1,38 +1,44 @@
-# Task Complete: Fix SvelteKit Navigation & Auth Redirects
+# Task Complete: Integrate V2 SmartTag Decryption into Global Scanner
 
 ## Date: 2026-03-09
 
 ### Status
-✅ **COMPLETE — Fixed row click navigation across all dashboard list pages. Verified in browser.**
+✅ **COMPLETE — Encrypted QR codes are now transparently decrypted and routed through the existing scan pipeline.**
 
 ---
 
 ## What Was Done
 
-### Root Cause
-All `goto('/dashboard/...')` calls were missing the SvelteKit `${base}` path prefix (`/E`). This caused SvelteKit client-side navigation to target URLs outside the app's mount point, triggering a full-page server redirect to `/E/` instead of the intended detail page.
+### Summary
+Modified `handle_scan` in `src/handlers/scan.rs` to intercept encrypted V2 SmartTag QR codes (e.g. `ECK1.COM/...`), decrypt them using `eck_binary_decrypt`, map the binary entity type to an internal routing prefix, and feed the result back into the existing resolution pipeline.
 
-### Files Fixed (7 files, 22 insertions, 19 deletions)
+### Changes (1 file)
 
 | File | Change |
 |------|--------|
-| `web/src/routes/dashboard/repairs/+page.svelte` | Added `import { base }`, prefixed `goto` in `openRepair()` and `createNew()` |
-| `web/src/routes/dashboard/repairs/[id]/+page.svelte` | Prefixed all 4 `goto('/dashboard/repairs')` calls with `${base}` |
-| `web/src/routes/dashboard/rma/+page.svelte` | Added `import { base }`, prefixed `goto` in `openRMA()` and `createNew()` |
-| `web/src/routes/dashboard/rma/[id]/+page.svelte` | Prefixed all 4 `goto('/dashboard/rma')` calls with `${base}` |
-| `web/src/routes/dashboard/items/+page.svelte` | Added `import { base }`, prefixed `goto` in `openItem()` |
-| `web/src/routes/dashboard/warehouse/[id]/+page.svelte` | Added `import { base }`, prefixed `goto('/dashboard/warehouse')` |
-| `web/src/lib/api.js` | Simplified `redirectToLogin()` to use `BASE_URL` + clear stale tokens from localStorage |
+| `src/handlers/scan.rs` | Added SmartTag decryption interception block + entity type mapping |
 
-### Verification
-- Rebuilt frontend (`npm run build` — OK)
-- Browser test: Clicked CS-DE-2603060 row → navigated to `/E/dashboard/repairs/a9dee9b6-...` ✅
-- Detail page loaded correctly with all customer data and Dynamic Attributes
+### Details
+
+1. **Imports added**: `eck_binary_decrypt`, entity type constants (`ENTITY_WMS_ITEM`, `ENTITY_WMS_BOX`, `ENTITY_WMS_LOCATION`, `ENTITY_TWENTY_COMPANY`, `ENTITY_TWENTY_PERSON`, `ENTITY_TWENTY_OPPORTUNITY`), `warn` from tracing.
+
+2. **Decryption interception** (before `try_twenty_lookup`): If the barcode starts with any configured `qr_prefixes` (e.g. `ECK1.COM/`), it calls `eck_binary_decrypt` with the app config's prefixes, tenant suffix, and `ENC_KEY` from env. On failure, returns an immediate error response.
+
+3. **Entity type mapping**: On successful decryption, the `SmartTag.entity_type` byte is mapped to internal routing strings:
+   - `0x00` (WMS_ITEM) → `i-{uuid}`
+   - `0x01` (WMS_BOX) → `b-{uuid}`
+   - `0x02` (WMS_LOCATION) → `p-{uuid}`
+   - `0x10` (TWENTY_COMPANY) → `company-{uuid}`
+   - `0x11` (TWENTY_PERSON) → `person-{uuid}`
+   - `0x12` (TWENTY_OPPORTUNITY) → `opp-{uuid}`
+   - Fallback → `unknown-{uuid}`
+
+4. **Seamless routing**: By overwriting the `barcode` variable with the mapped string (e.g. `company-UUID`), the rest of `handle_scan` (Twenty CRM lookup, V2 UUID parser, legacy search) picks it up automatically — zero structural changes needed downstream.
+
+### Compilation
+- `cargo check` — ✅ clean (no new warnings or errors)
 
 ---
 
 **Agent**: Expert Developer (The Fixer)
 **Status**: ✅ Complete
-
-
-[SYSTEM: EMBEDDED]

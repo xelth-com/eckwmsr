@@ -2,7 +2,7 @@ use axum::{extract::State, Json};
 use sea_orm::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use uuid::Uuid;
 
@@ -10,7 +10,11 @@ use crate::{
     ai::prompts::AGENT_SYSTEM_PROMPT,
     db::AppState,
     models::{item, location, order, product, product_alias},
-    utils::smart_code::decode_smart_label,
+    utils::encryption::eck_binary_decrypt,
+    utils::smart_code::{
+        decode_smart_label, ENTITY_TWENTY_COMPANY, ENTITY_TWENTY_OPPORTUNITY, ENTITY_TWENTY_PERSON,
+        ENTITY_WMS_BOX, ENTITY_WMS_ITEM, ENTITY_WMS_LOCATION,
+    },
 };
 
 #[derive(Deserialize)]
@@ -46,7 +50,7 @@ pub async fn handle_scan(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ScanRequest>,
 ) -> Json<ScanResponse> {
-    let barcode = payload.barcode.trim().to_string();
+    let mut barcode = payload.barcode.trim().to_string();
 
     if barcode.is_empty() {
         return Json(ScanResponse {
@@ -61,6 +65,43 @@ pub async fn handle_scan(
     }
 
     info!("[SCAN] Received barcode: {}", barcode);
+
+    // V2 SmartTag decryption: intercept encrypted QR codes (e.g. ECK1.COM/...)
+    if state.config.qr_prefixes.iter().any(|p| barcode.starts_with(p.as_str())) {
+        let enc_key = std::env::var("ENC_KEY").unwrap_or_default();
+        match eck_binary_decrypt(
+            &barcode,
+            &state.config.qr_prefixes,
+            &state.config.qr_tenant_suffix,
+            &enc_key,
+        ) {
+            Ok(tag) => {
+                let mapped = match tag.entity_type {
+                    ENTITY_WMS_ITEM => format!("i-{}", tag.uuid()),
+                    ENTITY_WMS_BOX => format!("b-{}", tag.uuid()),
+                    ENTITY_WMS_LOCATION => format!("p-{}", tag.uuid()),
+                    ENTITY_TWENTY_COMPANY => format!("company-{}", tag.uuid()),
+                    ENTITY_TWENTY_PERSON => format!("person-{}", tag.uuid()),
+                    ENTITY_TWENTY_OPPORTUNITY => format!("opp-{}", tag.uuid()),
+                    _ => format!("unknown-{}", tag.uuid()),
+                };
+                info!("[SCAN] Decrypted SmartTag → {}", mapped);
+                barcode = mapped;
+            }
+            Err(e) => {
+                warn!("[SCAN] SmartTag decryption failed: {}", e);
+                return Json(ScanResponse {
+                    r#type: "error".into(),
+                    message: "Invalid or corrupted encrypted QR code".into(),
+                    action: "error".into(),
+                    data: None,
+                    ai_interaction: None,
+                    msg_id: payload.msg_id,
+                    trust: None,
+                });
+            }
+        }
+    }
 
     // Check for SmartTag entity prefixes (company-uuid, person-uuid, opp-uuid)
     if let Some(resp) = try_twenty_lookup(&barcode, &state, &payload).await {
