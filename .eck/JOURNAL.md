@@ -1,6 +1,20 @@
 # Development Journal
 
 
+## 2026-03-08 — feat(ui): Dynamic Repair Schemas & Excel Sync
+
+- **Excel Sync** (Scrapers page): New "Excel Reparaturliste" section with Import (Excel→DB) and Export (DB→Excel) tabs
+  - Backend: `GET /api/excel/info`, `POST /api/excel/read`, `POST /api/excel/write-row` in scraper/server.js (exceljs)
+  - Handles formulas, hyperlinks, rich text, dates from .xlsm files
+  - Mapping for 30+ columns from "Körperanalyse" sheet — easily replaceable for other Excel files
+  - Backup `.bak.YYYY-MM-DD` created before each write
+- **Dynamic Repair Schemas** (Repair Detail page): JSONB metadata rendered as editable dynamic form fields
+  - Nested objects (fwBefore, fwAfter) rendered as grouped sub-fields
+  - Boolean fields as checkboxes, strings as text inputs
+  - "Add Custom Field" for arbitrary metadata
+  - "Replaced Parts" tag editor bound to partsUsed JSON array
+  - System keys (ticketId, trackingNumber) hidden from dynamic grid
+
 ## 2026-03-04 — feat(architecture): Murmur3 CAS, Binary SmartTags & Twenty CRM
 - **Infrastructure**: Fixed Nginx 413 payload limit for `pda.repair` (set to 50M).
 - **CAS Pipeline**: Migrated file storage to MurmurHash3 (x64_128) deterministic UUIDs. Uploads are now strictly idempotent.
