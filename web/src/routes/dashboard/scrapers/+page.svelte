@@ -54,6 +54,25 @@
 
     let expandedSyncLogs = new Set();
 
+    // ── Excel Sync state ───────────────────────────────────────────────────
+    let excelInfo = null;
+    let excelInfoLoading = false;
+    let excelRepairs = [];
+    let excelTotal = 0;
+    let excelLoading = false;
+    let excelError = null;
+    let excelLimit = 30;
+    let excelJsonOpen = false;
+    let excelSelected = new Set();
+    let excelImporting = false;
+    let excelImportResult = null;
+    let excelDbRepairs = [];
+    let excelDbLoading = false;
+    let excelDbSelected = new Set();
+    let excelExporting = false;
+    let excelExportResult = null;
+    let excelMode = 'import'; // 'import' or 'export'
+
     onMount(async () => {
         if (scraperOnline === null) {
             await loadScraperStatus();
@@ -393,6 +412,215 @@ Analyze this error and suggest a fix. Be concise.
             toastStore.add('Error copied for AI analysis', 'success');
         } catch (err) {
             toastStore.add('Failed to copy: ' + err.message, 'error');
+        }
+    }
+
+    // ── Excel Sync functions ─────────────────────────────────────────────
+    async function loadExcelInfo() {
+        excelInfoLoading = true;
+        try {
+            excelInfo = await api.get('/S/api/excel/info');
+        } catch (e) {
+            excelInfo = { success: false, error: e.message };
+        } finally {
+            excelInfoLoading = false;
+        }
+    }
+
+    async function readExcelRepairs() {
+        excelLoading = true;
+        excelError = null;
+        excelRepairs = [];
+        excelSelected = new Set();
+        excelImportResult = null;
+        try {
+            const res = await api.post('/S/api/excel/read', { limit: excelLimit, offset: 0 });
+            if (res.success) {
+                excelRepairs = res.repairs;
+                excelTotal = res.total;
+            } else {
+                excelError = res.error;
+            }
+        } catch (e) {
+            excelError = e.message;
+        } finally {
+            excelLoading = false;
+        }
+    }
+
+    async function loadDbRepairs() {
+        excelDbLoading = true;
+        excelDbSelected = new Set();
+        excelExportResult = null;
+        try {
+            const res = await api.get('/rma?type=repair');
+            excelDbRepairs = (res || []).filter(r => r.orderNumber && r.orderNumber.startsWith('CS-'));
+        } catch (e) {
+            excelDbRepairs = [];
+            toastStore.add('Failed to load repairs: ' + e.message, 'error');
+        } finally {
+            excelDbLoading = false;
+        }
+    }
+
+    function toggleExcelSelect(repairNumber) {
+        if (excelSelected.has(repairNumber)) {
+            excelSelected.delete(repairNumber);
+        } else {
+            excelSelected.add(repairNumber);
+        }
+        excelSelected = excelSelected;
+    }
+
+    function toggleExcelSelectAll() {
+        if (excelSelected.size === excelRepairs.length) {
+            excelSelected = new Set();
+        } else {
+            excelSelected = new Set(excelRepairs.map(r => r.repairNumber));
+        }
+    }
+
+    function toggleDbSelect(orderNumber) {
+        if (excelDbSelected.has(orderNumber)) {
+            excelDbSelected.delete(orderNumber);
+        } else {
+            excelDbSelected.add(orderNumber);
+        }
+        excelDbSelected = excelDbSelected;
+    }
+
+    function toggleDbSelectAll() {
+        if (excelDbSelected.size === excelDbRepairs.length) {
+            excelDbSelected = new Set();
+        } else {
+            excelDbSelected = new Set(excelDbRepairs.map(r => r.orderNumber));
+        }
+    }
+
+    async function importSelectedToDb() {
+        if (excelSelected.size === 0) return;
+        excelImporting = true;
+        excelImportResult = null;
+        let created = 0, updated = 0;
+        const errors = [];
+
+        for (const rn of excelSelected) {
+            const repair = excelRepairs.find(r => r.repairNumber === rn);
+            if (!repair) continue;
+            try {
+                const payload = {
+                    orderNumber: repair.repairNumber,
+                    orderType: 'repair',
+                    customerName: repair.customerName || '',
+                    customerEmail: '',
+                    customerPhone: '',
+                    productSku: '',
+                    productName: repair.model || '',
+                    serialNumber: repair.serialNumber || '',
+                    issueDescription: repair.errorDescription || '',
+                    resolution: repair.troubleshooting || '',
+                    status: repair.status || 'in_progress',
+                    priority: 'normal',
+                    repairNotes: '',
+                    partsUsed: repair.defectiveParts || [],
+                    laborHours: 0,
+                    totalCost: 0,
+                    notes: `Imported from Excel row ${repair.excelRow}. Ticket: ${repair.ticketNumber || 'N/A'}. Warranty: ${repair.warranty || 'N/A'}`,
+                    metadata: {
+                        ticketNumber: repair.ticketNumber,
+                        warranty: repair.warranty,
+                        selfRepair: repair.selfRepair,
+                        fwBefore: repair.fwBefore,
+                        fwAfter: repair.fwAfter,
+                        productionDate: repair.productionDate,
+                        purchaseDate: repair.purchaseDate,
+                        repairTime: repair.repairTime,
+                        excelRow: repair.excelRow,
+                        importedFromExcel: true,
+                    },
+                };
+                if (repair.dateOfReceipt) payload.startedAt = new Date(repair.dateOfReceipt).toISOString();
+                if (repair.releaseDate) payload.completedAt = new Date(repair.releaseDate).toISOString();
+
+                await api.post('/rma', payload);
+                created++;
+            } catch (e) {
+                if (e.message && e.message.includes('duplicate')) {
+                    // Try update
+                    try {
+                        const existing = excelDbRepairs.find(r => r.orderNumber === rn);
+                        if (existing) {
+                            await api.put(`/rma/${existing.id}`, {
+                                issueDescription: repair.errorDescription || '',
+                                resolution: repair.troubleshooting || '',
+                                status: repair.status || 'in_progress',
+                            });
+                            updated++;
+                        } else {
+                            errors.push(`${rn}: ${e.message}`);
+                        }
+                    } catch (e2) {
+                        errors.push(`${rn}: ${e2.message}`);
+                    }
+                } else {
+                    errors.push(`${rn}: ${e.message}`);
+                }
+            }
+        }
+
+        excelImportResult = { created, updated, errors };
+        excelImporting = false;
+        if (created + updated > 0) {
+            toastStore.add(`Imported ${created} new, updated ${updated} repairs`, 'success');
+        }
+        if (errors.length > 0) {
+            toastStore.add(`${errors.length} error(s) during import`, 'error');
+        }
+    }
+
+    async function exportSelectedToExcel() {
+        if (excelDbSelected.size === 0) return;
+        excelExporting = true;
+        excelExportResult = null;
+        let written = 0;
+        const errors = [];
+
+        for (const on of excelDbSelected) {
+            const repair = excelDbRepairs.find(r => r.orderNumber === on);
+            if (!repair) continue;
+            try {
+                const payload = {
+                    repairNumber: repair.orderNumber,
+                    ticketNumber: repair.metadata?.ticketNumber || '',
+                    warranty: repair.metadata?.warranty === 'J' || repair.metadata?.warranty === 'Y',
+                    errorDescription: repair.issueDescription || '',
+                    troubleshooting: repair.resolution || '',
+                    model: repair.productName || '',
+                    serialNumber: repair.serialNumber || '',
+                    customerName: repair.customerName || '',
+                    defectiveParts: repair.partsUsed || [],
+                    dateOfReceipt: repair.startedAt ? repair.startedAt.slice(0, 10) : null,
+                    releaseDate: repair.completedAt ? repair.completedAt.slice(0, 10) : null,
+                    status: repair.status,
+                };
+                const res = await api.post('/S/api/excel/write-row', payload);
+                if (res.success) {
+                    written++;
+                } else {
+                    errors.push(`${on}: ${res.error}`);
+                }
+            } catch (e) {
+                errors.push(`${on}: ${e.message}`);
+            }
+        }
+
+        excelExportResult = { written, errors };
+        excelExporting = false;
+        if (written > 0) {
+            toastStore.add(`Wrote ${written} repair(s) to Excel`, 'success');
+        }
+        if (errors.length > 0) {
+            toastStore.add(`${errors.length} error(s) during export`, 'error');
         }
     }
 
@@ -803,11 +1031,214 @@ Analyze this error and suggest a fix. Be concise.
                 </div>
             </div>
 
+            <!-- ── Excel Reparaturliste ─────────────────────────────────── -->
+            <div class="excel-section">
+                <div class="excel-header">
+                    <span class="excel-title">📋 Excel Reparaturliste</span>
+                    <button class="run-btn excel-info-btn" on:click={loadExcelInfo} disabled={excelInfoLoading || scraperOnline !== true}>
+                        {excelInfoLoading ? '...' : 'i'} Info
+                    </button>
+                </div>
+
+                {#if excelInfo}
+                    <div class="excel-info-bar" class:info-ok={excelInfo.success} class:info-err={!excelInfo.success}>
+                        {#if excelInfo.success}
+                            <span>{excelInfo.totalRepairs} repairs | Last: {excelInfo.lastRepairNumber} | Modified: {new Date(excelInfo.lastModified).toLocaleDateString('de-DE')}</span>
+                        {:else}
+                            <span class="error">File error: {excelInfo.error}</span>
+                        {/if}
+                    </div>
+                {/if}
+
+                <div class="excel-mode-tabs">
+                    <button class="excel-tab" class:active={excelMode === 'import'} on:click={() => excelMode = 'import'}>
+                        📥 Import (Excel → DB)
+                    </button>
+                    <button class="excel-tab" class:active={excelMode === 'export'} on:click={() => excelMode = 'export'}>
+                        📤 Export (DB → Excel)
+                    </button>
+                </div>
+
+                {#if excelMode === 'import'}
+                    <div class="excel-panel">
+                        <div class="excel-controls-row">
+                            <label class="control-row">
+                                <span>Show last</span>
+                                <select bind:value={excelLimit} disabled={excelLoading}>
+                                    <option value={10}>10</option>
+                                    <option value={30}>30</option>
+                                    <option value={50}>50</option>
+                                    <option value={100}>100</option>
+                                    <option value={500}>500</option>
+                                </select>
+                            </label>
+                            <button class="run-btn excel-run" on:click={readExcelRepairs} disabled={excelLoading || scraperOnline !== true}>
+                                {#if excelLoading}<span class="spinner">⏳</span> Reading...
+                                {:else}📖 Read Excel{/if}
+                            </button>
+                        </div>
+
+                        {#if excelError}
+                            <div class="result-box result-err">
+                                <div class="result-summary error">{excelError}</div>
+                            </div>
+                        {/if}
+
+                        {#if excelRepairs.length > 0}
+                            <div class="excel-table-info">
+                                Showing {excelRepairs.length} of {excelTotal} repairs (newest first)
+                            </div>
+                            <div class="excel-table-wrap">
+                                <table class="excel-table">
+                                    <thead>
+                                        <tr>
+                                            <th><input type="checkbox" checked={excelSelected.size === excelRepairs.length && excelRepairs.length > 0} on:change={toggleExcelSelectAll} /></th>
+                                            <th>Row</th>
+                                            <th>Repair #</th>
+                                            <th>Ticket</th>
+                                            <th>Model</th>
+                                            <th>Serial</th>
+                                            <th>Customer</th>
+                                            <th>Error</th>
+                                            <th>Received</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {#each excelRepairs as r}
+                                            <tr class:selected={excelSelected.has(r.repairNumber)}>
+                                                <td><input type="checkbox" checked={excelSelected.has(r.repairNumber)} on:change={() => toggleExcelSelect(r.repairNumber)} /></td>
+                                                <td class="muted">{r.excelRow}</td>
+                                                <td class="mono">{r.repairNumber}</td>
+                                                <td class="muted">{r.ticketNumber || '-'}</td>
+                                                <td>{r.model || '-'}</td>
+                                                <td class="mono">{r.serialNumber || '-'}</td>
+                                                <td class="truncate">{r.customerName || '-'}</td>
+                                                <td class="truncate">{r.errorDescription || '-'}</td>
+                                                <td>{r.dateOfReceipt || '-'}</td>
+                                                <td>
+                                                    <span class="status-dot" class:done={r.status === 'completed'} class:wip={r.status !== 'completed'}>
+                                                        {r.status === 'completed' ? '✅' : '🔧'}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        {/each}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="excel-actions-row">
+                                <button class="run-btn excel-run" on:click={importSelectedToDb}
+                                    disabled={excelImporting || excelSelected.size === 0}>
+                                    {#if excelImporting}<span class="spinner">⏳</span> Importing...
+                                    {:else}📥 Import {excelSelected.size} selected to DB{/if}
+                                </button>
+                                <button class="toggle-json" on:click={() => excelJsonOpen = !excelJsonOpen}>
+                                    {excelJsonOpen ? '▼' : '▶'} Raw JSON
+                                </button>
+                            </div>
+
+                            {#if excelJsonOpen}
+                                <pre class="result-json">{JSON.stringify(excelRepairs.filter(r => excelSelected.has(r.repairNumber)), null, 2)}</pre>
+                            {/if}
+
+                            {#if excelImportResult}
+                                <div class="result-box" class:result-ok={excelImportResult.errors.length === 0} class:result-err={excelImportResult.errors.length > 0}>
+                                    <div class="result-summary">
+                                        {excelImportResult.errors.length === 0 ? '✅' : '⚠️'}
+                                        Created: {excelImportResult.created}, Updated: {excelImportResult.updated}
+                                    </div>
+                                    {#if excelImportResult.errors.length > 0}
+                                        <div class="import-errors">
+                                            {#each excelImportResult.errors as err}
+                                                <div class="import-error-line">⚠️ {err}</div>
+                                            {/each}
+                                        </div>
+                                    {/if}
+                                </div>
+                            {/if}
+                        {/if}
+                    </div>
+
+                {:else}
+                    <div class="excel-panel">
+                        <div class="excel-controls-row">
+                            <button class="run-btn excel-run" on:click={loadDbRepairs} disabled={excelDbLoading}>
+                                {#if excelDbLoading}<span class="spinner">⏳</span> Loading...
+                                {:else}📋 Load Repairs from DB{/if}
+                            </button>
+                        </div>
+
+                        {#if excelDbRepairs.length > 0}
+                            <div class="excel-table-info">
+                                {excelDbRepairs.length} repair(s) in DB with CS- number
+                            </div>
+                            <div class="excel-table-wrap">
+                                <table class="excel-table">
+                                    <thead>
+                                        <tr>
+                                            <th><input type="checkbox" checked={excelDbSelected.size === excelDbRepairs.length && excelDbRepairs.length > 0} on:change={toggleDbSelectAll} /></th>
+                                            <th>Repair #</th>
+                                            <th>Model</th>
+                                            <th>Serial</th>
+                                            <th>Customer</th>
+                                            <th>Issue</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {#each excelDbRepairs as r}
+                                            <tr class:selected={excelDbSelected.has(r.orderNumber)}>
+                                                <td><input type="checkbox" checked={excelDbSelected.has(r.orderNumber)} on:change={() => toggleDbSelect(r.orderNumber)} /></td>
+                                                <td class="mono">{r.orderNumber}</td>
+                                                <td>{r.productName || '-'}</td>
+                                                <td class="mono">{r.serialNumber || '-'}</td>
+                                                <td class="truncate">{r.customerName || '-'}</td>
+                                                <td class="truncate">{r.issueDescription || '-'}</td>
+                                                <td>
+                                                    <span class="status-dot" class:done={r.status === 'completed'} class:wip={r.status !== 'completed'}>
+                                                        {r.status === 'completed' ? '✅' : '🔧'}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        {/each}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="excel-actions-row">
+                                <button class="run-btn excel-run" on:click={exportSelectedToExcel}
+                                    disabled={excelExporting || excelDbSelected.size === 0}>
+                                    {#if excelExporting}<span class="spinner">⏳</span> Writing...
+                                    {:else}📤 Write {excelDbSelected.size} selected to Excel{/if}
+                                </button>
+                            </div>
+
+                            {#if excelExportResult}
+                                <div class="result-box" class:result-ok={excelExportResult.errors.length === 0} class:result-err={excelExportResult.errors.length > 0}>
+                                    <div class="result-summary">
+                                        {excelExportResult.errors.length === 0 ? '✅' : '⚠️'}
+                                        Written: {excelExportResult.written}
+                                    </div>
+                                    {#if excelExportResult.errors.length > 0}
+                                        <div class="import-errors">
+                                            {#each excelExportResult.errors as err}
+                                                <div class="import-error-line">⚠️ {err}</div>
+                                            {/each}
+                                        </div>
+                                    {/if}
+                                </div>
+                            {/if}
+                        {:else if !excelDbLoading}
+                            <div class="excel-empty">No CS- repairs in database yet. Import from Excel first.</div>
+                        {/if}
+                    </div>
+                {/if}
+            </div>
+
             <div class="creds-note">
                 Credentials are read from server <code>.env</code>
-                (OPAL_USERNAME / DHL_USERNAME). To test with different creds,
-                use curl directly on <code>POST /S/api/opal/fetch</code> with
-                <code>"username"</code> and <code>"password"</code> fields.
+                (OPAL_USERNAME / DHL_USERNAME). Excel file path: <code>EXCEL_REPAIR_FILE</code>.
             </div>
         </div>
 
@@ -1091,4 +1522,36 @@ Analyze this error and suggest a fix. Be concise.
     .error-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
     .error-badge { font-size: 0.9rem; font-weight: 700; color: #ff6b6b; white-space: nowrap; }
     .error-detail { font-size: 0.78rem; color: #aa6b6b; font-family: monospace; background: #1a1010; border-left: 3px solid #ef4444; padding: 0.5rem 0.75rem; border-radius: 4px; white-space: pre-wrap; word-break: break-word; max-height: 120px; overflow-y: auto; }
+
+    /* ── Excel Sync ─────────────────────────────────────────────────── */
+    .excel-section { margin-top: 1.5rem; border: 2px solid #c2610a; border-radius: 10px; padding: 1.25rem; background: rgba(194,97,10,0.04); display: flex; flex-direction: column; gap: 0.75rem; }
+    .excel-header { display: flex; align-items: center; justify-content: space-between; }
+    .excel-title { font-size: 1.1rem; font-weight: 700; color: #fb923c; }
+    .excel-info-btn { padding: 0.3rem 0.75rem !important; font-size: 0.8rem !important; background: #4a2a0a; color: #fb923c; border: 1px solid #c2610a; }
+    .excel-info-btn:hover:not(:disabled) { background: #6b3a10; }
+    .excel-info-bar { font-size: 0.82rem; padding: 0.4rem 0.75rem; border-radius: 5px; }
+    .excel-info-bar.info-ok { color: #a3e635; background: rgba(163,230,53,0.06); border: 1px solid rgba(163,230,53,0.2); }
+    .excel-info-bar.info-err { color: #ff6b6b; background: rgba(255,107,107,0.06); border: 1px solid rgba(255,107,107,0.2); }
+    .excel-mode-tabs { display: flex; gap: 0.5rem; }
+    .excel-tab { flex: 1; padding: 0.5rem; border: 1px solid #333; background: #1a1a1a; color: #888; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: all 0.15s; }
+    .excel-tab.active { background: #4a2a0a; color: #fb923c; border-color: #c2610a; }
+    .excel-tab:hover:not(.active) { background: #252525; color: #aaa; }
+    .excel-panel { display: flex; flex-direction: column; gap: 0.75rem; }
+    .excel-controls-row { display: flex; gap: 0.75rem; align-items: center; }
+    .excel-run { background: #4a2a0a; color: #fb923c; border: 1px solid #c2610a; }
+    .excel-run:hover:not(:disabled) { background: #6b3a10; }
+    .excel-table-info { font-size: 0.8rem; color: #888; }
+    .excel-table-wrap { overflow-x: auto; max-height: 400px; overflow-y: auto; border: 1px solid #333; border-radius: 6px; }
+    .excel-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    .excel-table th { position: sticky; top: 0; background: #1a1a1a; color: #aaa; padding: 0.4rem 0.5rem; text-align: left; border-bottom: 1px solid #333; white-space: nowrap; }
+    .excel-table td { padding: 0.35rem 0.5rem; border-bottom: 1px solid #1e1e1e; color: #ccc; }
+    .excel-table tr:hover { background: rgba(251,146,60,0.05); }
+    .excel-table tr.selected { background: rgba(251,146,60,0.1); }
+    .excel-table .mono { font-family: monospace; font-size: 0.75rem; }
+    .excel-table .muted { color: #666; }
+    .excel-table .truncate { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .excel-actions-row { display: flex; gap: 0.75rem; align-items: center; }
+    .excel-empty { font-size: 0.85rem; color: #666; padding: 1rem; text-align: center; }
+    .status-dot.done { color: #4ade80; }
+    .status-dot.wip { color: #fb923c; }
 </style>

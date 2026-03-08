@@ -1,4 +1,4 @@
-import { h as attr, e as escape_html, d as attr_class, j as bind_props } from "../../../../chunks/index2.js";
+import { h as attr, e as escape_html, d as attr_class, b as ensure_array_like, j as bind_props } from "../../../../chunks/index2.js";
 import "../../../../chunks/authStore.js";
 import "../../../../chunks/url.js";
 import "@sveltejs/kit/internal/server";
@@ -26,6 +26,12 @@ function _page($$renderer, $$props) {
     let zohoLimit = 10;
     let zohoThreadTicketId = "";
     let zohoThreadRunning = false;
+    let excelRepairs = [];
+    let excelTotal = 0;
+    let excelLoading = false;
+    let excelLimit = 30;
+    let excelSelected = /* @__PURE__ */ new Set();
+    let excelMode = "import";
     $$renderer2.push(`<div class="scrapers-page svelte-1rxsw4v"><header class="svelte-1rxsw4v"><h1 class="svelte-1rxsw4v">🤖 Scrapers &amp; Integrations</h1> <div class="header-actions svelte-1rxsw4v"><button class="refresh-btn svelte-1rxsw4v"${attr("disabled", loading, true)}>${escape_html("↻ Refresh")}</button></div></header> <div class="tabs svelte-1rxsw4v"><button${attr_class("tab svelte-1rxsw4v", void 0, { "active": activeTab === "scraper" })}>🎛️ Scraper Admin</button> <button${attr_class("tab svelte-1rxsw4v", void 0, { "active": activeTab === "sync" })}>🔄 Sync History</button></div> `);
     if (error) {
       $$renderer2.push("<!--[-->");
@@ -232,8 +238,96 @@ function _page($$renderer, $$props) {
       {
         $$renderer2.push("<!--[!-->");
       }
-      $$renderer2.push(`<!--]--></div></div></div> <div class="creds-note svelte-1rxsw4v">Credentials are read from server <code class="svelte-1rxsw4v">.env</code> (OPAL_USERNAME / DHL_USERNAME). To test with different creds,
-                use curl directly on <code class="svelte-1rxsw4v">POST /S/api/opal/fetch</code> with <code class="svelte-1rxsw4v">"username"</code> and <code class="svelte-1rxsw4v">"password"</code> fields.</div></div>`);
+      $$renderer2.push(`<!--]--></div></div></div> <div class="excel-section svelte-1rxsw4v"><div class="excel-header svelte-1rxsw4v"><span class="excel-title svelte-1rxsw4v">📋 Excel Reparaturliste</span> <button class="run-btn excel-info-btn svelte-1rxsw4v"${attr("disabled", scraperOnline !== true, true)}>${escape_html("i")} Info</button></div> `);
+      {
+        $$renderer2.push("<!--[!-->");
+      }
+      $$renderer2.push(`<!--]--> <div class="excel-mode-tabs svelte-1rxsw4v"><button${attr_class("excel-tab svelte-1rxsw4v", void 0, { "active": excelMode === "import" })}>📥 Import (Excel → DB)</button> <button${attr_class("excel-tab svelte-1rxsw4v", void 0, { "active": excelMode === "export" })}>📤 Export (DB → Excel)</button></div> `);
+      {
+        $$renderer2.push("<!--[-->");
+        $$renderer2.push(`<div class="excel-panel svelte-1rxsw4v"><div class="excel-controls-row svelte-1rxsw4v"><label class="control-row svelte-1rxsw4v"><span class="svelte-1rxsw4v">Show last</span> `);
+        $$renderer2.select(
+          { value: excelLimit, disabled: excelLoading, class: "" },
+          ($$renderer3) => {
+            $$renderer3.option(
+              { value: 10, class: "" },
+              ($$renderer4) => {
+                $$renderer4.push(`10`);
+              },
+              "svelte-1rxsw4v"
+            );
+            $$renderer3.option(
+              { value: 30, class: "" },
+              ($$renderer4) => {
+                $$renderer4.push(`30`);
+              },
+              "svelte-1rxsw4v"
+            );
+            $$renderer3.option(
+              { value: 50, class: "" },
+              ($$renderer4) => {
+                $$renderer4.push(`50`);
+              },
+              "svelte-1rxsw4v"
+            );
+            $$renderer3.option(
+              { value: 100, class: "" },
+              ($$renderer4) => {
+                $$renderer4.push(`100`);
+              },
+              "svelte-1rxsw4v"
+            );
+            $$renderer3.option(
+              { value: 500, class: "" },
+              ($$renderer4) => {
+                $$renderer4.push(`500`);
+              },
+              "svelte-1rxsw4v"
+            );
+          },
+          "svelte-1rxsw4v"
+        );
+        $$renderer2.push(`</label> <button class="run-btn excel-run svelte-1rxsw4v"${attr("disabled", scraperOnline !== true, true)}>`);
+        {
+          $$renderer2.push("<!--[!-->");
+          $$renderer2.push(`📖 Read Excel`);
+        }
+        $$renderer2.push(`<!--]--></button></div> `);
+        {
+          $$renderer2.push("<!--[!-->");
+        }
+        $$renderer2.push(`<!--]--> `);
+        if (excelRepairs.length > 0) {
+          $$renderer2.push("<!--[-->");
+          $$renderer2.push(`<div class="excel-table-info svelte-1rxsw4v">Showing ${escape_html(excelRepairs.length)} of ${escape_html(excelTotal)} repairs (newest first)</div> <div class="excel-table-wrap svelte-1rxsw4v"><table class="excel-table svelte-1rxsw4v"><thead class="svelte-1rxsw4v"><tr class="svelte-1rxsw4v"><th class="svelte-1rxsw4v"><input type="checkbox"${attr("checked", excelSelected.size === excelRepairs.length && excelRepairs.length > 0, true)} class="svelte-1rxsw4v"/></th><th class="svelte-1rxsw4v">Row</th><th class="svelte-1rxsw4v">Repair #</th><th class="svelte-1rxsw4v">Ticket</th><th class="svelte-1rxsw4v">Model</th><th class="svelte-1rxsw4v">Serial</th><th class="svelte-1rxsw4v">Customer</th><th class="svelte-1rxsw4v">Error</th><th class="svelte-1rxsw4v">Received</th><th class="svelte-1rxsw4v">Status</th></tr></thead><tbody class="svelte-1rxsw4v"><!--[-->`);
+          const each_array_3 = ensure_array_like(excelRepairs);
+          for (let $$index_3 = 0, $$length = each_array_3.length; $$index_3 < $$length; $$index_3++) {
+            let r = each_array_3[$$index_3];
+            $$renderer2.push(`<tr${attr_class("svelte-1rxsw4v", void 0, { "selected": excelSelected.has(r.repairNumber) })}><td class="svelte-1rxsw4v"><input type="checkbox"${attr("checked", excelSelected.has(r.repairNumber), true)} class="svelte-1rxsw4v"/></td><td class="muted svelte-1rxsw4v">${escape_html(r.excelRow)}</td><td class="mono svelte-1rxsw4v">${escape_html(r.repairNumber)}</td><td class="muted svelte-1rxsw4v">${escape_html(r.ticketNumber || "-")}</td><td class="svelte-1rxsw4v">${escape_html(r.model || "-")}</td><td class="mono svelte-1rxsw4v">${escape_html(r.serialNumber || "-")}</td><td class="truncate svelte-1rxsw4v">${escape_html(r.customerName || "-")}</td><td class="truncate svelte-1rxsw4v">${escape_html(r.errorDescription || "-")}</td><td class="svelte-1rxsw4v">${escape_html(r.dateOfReceipt || "-")}</td><td class="svelte-1rxsw4v"><span${attr_class("status-dot svelte-1rxsw4v", void 0, {
+              "done": r.status === "completed",
+              "wip": r.status !== "completed"
+            })}>${escape_html(r.status === "completed" ? "✅" : "🔧")}</span></td></tr>`);
+          }
+          $$renderer2.push(`<!--]--></tbody></table></div> <div class="excel-actions-row svelte-1rxsw4v"><button class="run-btn excel-run svelte-1rxsw4v"${attr("disabled", excelSelected.size === 0, true)}>`);
+          {
+            $$renderer2.push("<!--[!-->");
+            $$renderer2.push(`📥 Import ${escape_html(excelSelected.size)} selected to DB`);
+          }
+          $$renderer2.push(`<!--]--></button> <button class="toggle-json svelte-1rxsw4v">${escape_html("▶")} Raw JSON</button></div> `);
+          {
+            $$renderer2.push("<!--[!-->");
+          }
+          $$renderer2.push(`<!--]--> `);
+          {
+            $$renderer2.push("<!--[!-->");
+          }
+          $$renderer2.push(`<!--]-->`);
+        } else {
+          $$renderer2.push("<!--[!-->");
+        }
+        $$renderer2.push(`<!--]--></div>`);
+      }
+      $$renderer2.push(`<!--]--></div> <div class="creds-note svelte-1rxsw4v">Credentials are read from server <code class="svelte-1rxsw4v">.env</code> (OPAL_USERNAME / DHL_USERNAME). Excel file path: <code class="svelte-1rxsw4v">EXCEL_REPAIR_FILE</code>.</div></div>`);
     }
     $$renderer2.push(`<!--]--></div>`);
     bind_props($$props, { data });

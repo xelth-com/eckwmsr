@@ -1,5 +1,6 @@
 const express = require('express');
 const { chromium } = require('playwright');
+const ExcelJS = require('exceljs');
 const fs = require('fs').promises;
 const path = require('path');
 const app = express();
@@ -1074,9 +1075,273 @@ app.get('/debug', (req, res) => {
             { method: 'POST', path: '/api/zoho/tickets',               desc: 'Zoho Desk: login and fetch tickets' },
             { method: 'POST', path: '/api/zoho/ticket-threads',       desc: 'Zoho Desk: fetch ticket email threads with HTML content and attachments' },
             { method: 'POST', path: '/api/zoho/download-attachment',  desc: 'Zoho Desk: download a single attachment as base64 using session cookies' },
+            { method: 'GET',  path: '/api/excel/info',               desc: 'Excel: file metadata and repair count' },
+            { method: 'POST', path: '/api/excel/read',               desc: 'Excel: read repairs (body: limit, offset)' },
+            { method: 'POST', path: '/api/excel/write-row',          desc: 'Excel: add/update a repair row (body: repairNumber + fields)' },
             { method: 'GET',  path: '/debug',                         desc: 'This page' },
         ]
     });
+});
+
+// ─── Excel Reparaturliste Integration ────────────────────────────────────────
+// Reads/writes the InBody repair Excel file (.xlsm).
+// Mapping is specific to "Reparaturliste InBody Deutschland.xlsm" but designed
+// to be easily rewritten for other Excel files.
+
+const EXCEL_FILE = process.env.EXCEL_REPAIR_FILE
+    ? path.resolve(__dirname, '..', process.env.EXCEL_REPAIR_FILE)
+    : path.resolve(__dirname, '..', '.eck', 'Reparaturliste InBody Deutschland.xlsm');
+
+// Column mapping: 1-based column indices for "Körperanalyse" sheet, row 14 headers
+// Easily replaceable block for adapting to other Excel files.
+const EXCEL_SHEET = 'Körperanalyse';
+const EXCEL_DATA_START_ROW = 15; // first data row (after headers)
+const EXCEL_COL = {
+    ticketNumber:    2,  // B
+    repairNumber:    3,  // C
+    warranty:        4,  // D
+    selfRepair:      5,  // E
+    errorDesc:       6,  // F
+    troubleshooting: 7,  // G
+    defectPart1:     8,  // H
+    defectPart2:     9,  // I
+    defectPart3:    10,  // J
+    defectPart4:    11,  // K
+    defectPart5:    12,  // L
+    defectPart6:    13,  // M
+    fwKernelBefore: 15,  // O
+    fwDigiBefore:   16,  // P
+    fwAnalogBefore: 17,  // Q
+    fwKernelAfter:  18,  // R
+    fwDigiAfter:    19,  // S
+    fwAnalogAfter:  20,  // T
+    model:          51,  // AY
+    serialNumber:   52,  // AZ
+    productionDate: 53,  // BA
+    purchaseDate:   54,  // BB
+    customerName:   55,  // BC
+    dateOfReceipt:  56,  // BD
+    releaseDate:    57,  // BE
+    repairTime:     58,  // BF
+    completed:      72,  // BT
+};
+
+function cellVal(row, colIdx) {
+    const cell = row.getCell(colIdx);
+    if (!cell || cell.value === null || cell.value === undefined) return null;
+    // Handle Excel date objects
+    if (cell.value instanceof Date) return cell.value.toISOString().slice(0, 10);
+    // Handle formula cells — use computed result
+    if (typeof cell.value === 'object' && ('formula' in cell.value || 'sharedFormula' in cell.value)) {
+        return cell.value.result != null ? String(cell.value.result) : null;
+    }
+    // Handle rich text
+    if (typeof cell.value === 'object' && cell.value.richText) {
+        return cell.value.richText.map(r => r.text).join('');
+    }
+    // Handle hyperlink cells (e.g. customer name with folder link)
+    if (typeof cell.value === 'object' && cell.value.text) {
+        return String(cell.value.text);
+    }
+    return String(cell.value);
+}
+
+function excelRowToRepair(row, rowNumber) {
+    const parts = [
+        cellVal(row, EXCEL_COL.defectPart1),
+        cellVal(row, EXCEL_COL.defectPart2),
+        cellVal(row, EXCEL_COL.defectPart3),
+        cellVal(row, EXCEL_COL.defectPart4),
+        cellVal(row, EXCEL_COL.defectPart5),
+        cellVal(row, EXCEL_COL.defectPart6),
+    ].filter(Boolean);
+
+    const completed = cellVal(row, EXCEL_COL.completed);
+    const isCompleted = completed === '√' || completed === '✓' || (completed && completed.toLowerCase() === 'yes');
+
+    return {
+        excelRow: rowNumber,
+        ticketNumber:    cellVal(row, EXCEL_COL.ticketNumber),
+        repairNumber:    cellVal(row, EXCEL_COL.repairNumber),
+        warranty:        cellVal(row, EXCEL_COL.warranty),
+        selfRepair:      cellVal(row, EXCEL_COL.selfRepair),
+        errorDescription: cellVal(row, EXCEL_COL.errorDesc),
+        troubleshooting: cellVal(row, EXCEL_COL.troubleshooting),
+        defectiveParts:  parts,
+        fwBefore: {
+            kernel:  cellVal(row, EXCEL_COL.fwKernelBefore),
+            digital: cellVal(row, EXCEL_COL.fwDigiBefore),
+            analog:  cellVal(row, EXCEL_COL.fwAnalogBefore),
+        },
+        fwAfter: {
+            kernel:  cellVal(row, EXCEL_COL.fwKernelAfter),
+            digital: cellVal(row, EXCEL_COL.fwDigiAfter),
+            analog:  cellVal(row, EXCEL_COL.fwAnalogAfter),
+        },
+        model:          cellVal(row, EXCEL_COL.model),
+        serialNumber:   cellVal(row, EXCEL_COL.serialNumber),
+        productionDate: cellVal(row, EXCEL_COL.productionDate),
+        purchaseDate:   cellVal(row, EXCEL_COL.purchaseDate),
+        customerName:   cellVal(row, EXCEL_COL.customerName),
+        dateOfReceipt:  cellVal(row, EXCEL_COL.dateOfReceipt),
+        releaseDate:    cellVal(row, EXCEL_COL.releaseDate),
+        repairTime:     cellVal(row, EXCEL_COL.repairTime),
+        status:         isCompleted ? 'completed' : 'in_progress',
+    };
+}
+
+// GET /api/excel/info — file metadata
+app.get('/api/excel/info', async (req, res) => {
+    try {
+        const stat = await fs.stat(EXCEL_FILE);
+        const wb = new ExcelJS.Workbook();
+        await wb.xlsx.readFile(EXCEL_FILE);
+        const ws = wb.getWorksheet(EXCEL_SHEET);
+        if (!ws) return res.json({ success: false, error: `Sheet "${EXCEL_SHEET}" not found` });
+
+        let dataRows = 0;
+        let lastRepairNumber = null;
+        ws.eachRow((row, rowNumber) => {
+            if (rowNumber >= EXCEL_DATA_START_ROW) {
+                const rn = cellVal(row, EXCEL_COL.repairNumber);
+                if (rn && rn.startsWith('CS-')) {
+                    dataRows++;
+                    lastRepairNumber = rn;
+                }
+            }
+        });
+
+        res.json({
+            success: true,
+            filePath: EXCEL_FILE,
+            fileSize: stat.size,
+            lastModified: stat.mtime.toISOString(),
+            sheet: EXCEL_SHEET,
+            totalRepairs: dataRows,
+            lastRepairNumber,
+        });
+    } catch (err) {
+        res.json({ success: false, error: err.message });
+    }
+});
+
+// POST /api/excel/read — read repairs from Excel
+// Body: { limit?: number, offset?: number }
+app.post('/api/excel/read', async (req, res) => {
+    try {
+        const { limit = 50, offset = 0 } = req.body || {};
+        const wb = new ExcelJS.Workbook();
+        await wb.xlsx.readFile(EXCEL_FILE);
+        const ws = wb.getWorksheet(EXCEL_SHEET);
+        if (!ws) return res.json({ success: false, error: `Sheet "${EXCEL_SHEET}" not found` });
+
+        const allRepairs = [];
+        ws.eachRow((row, rowNumber) => {
+            if (rowNumber >= EXCEL_DATA_START_ROW) {
+                const rn = cellVal(row, EXCEL_COL.repairNumber);
+                if (rn && rn.startsWith('CS-')) {
+                    allRepairs.push(excelRowToRepair(row, rowNumber));
+                }
+            }
+        });
+
+        // Return from the end (newest first), apply offset/limit
+        const reversed = allRepairs.reverse();
+        const sliced = reversed.slice(offset, offset + limit);
+
+        res.json({
+            success: true,
+            total: allRepairs.length,
+            offset,
+            limit,
+            repairs: sliced,
+        });
+    } catch (err) {
+        res.json({ success: false, error: err.message });
+    }
+});
+
+// POST /api/excel/write-row — add or update a row in Excel
+// Body: { repairNumber, ticketNumber, warranty, errorDescription, troubleshooting,
+//         defectiveParts[], model, serialNumber, productionDate, customerName,
+//         dateOfReceipt, releaseDate, status }
+app.post('/api/excel/write-row', async (req, res) => {
+    try {
+        const data = req.body;
+        if (!data.repairNumber) return res.json({ success: false, error: 'repairNumber is required' });
+
+        // Backup before writing
+        const backupPath = EXCEL_FILE + '.bak.' + new Date().toISOString().slice(0, 10);
+        try { await fs.access(backupPath); } catch {
+            await fs.copyFile(EXCEL_FILE, backupPath);
+            console.log(`[Excel] Backup created: ${backupPath}`);
+        }
+
+        const wb = new ExcelJS.Workbook();
+        await wb.xlsx.readFile(EXCEL_FILE);
+        const ws = wb.getWorksheet(EXCEL_SHEET);
+        if (!ws) return res.json({ success: false, error: `Sheet "${EXCEL_SHEET}" not found` });
+
+        // Find existing row by repair number
+        let targetRow = null;
+        let mode = 'create';
+        ws.eachRow((row, rowNumber) => {
+            if (rowNumber >= EXCEL_DATA_START_ROW) {
+                const rn = cellVal(row, EXCEL_COL.repairNumber);
+                if (rn === data.repairNumber) {
+                    targetRow = row;
+                    mode = 'update';
+                }
+            }
+        });
+
+        if (!targetRow) {
+            // Find last used row and append after it
+            let lastDataRow = EXCEL_DATA_START_ROW - 1;
+            ws.eachRow((row, rowNumber) => {
+                if (rowNumber >= EXCEL_DATA_START_ROW) {
+                    const rn = cellVal(row, EXCEL_COL.repairNumber);
+                    if (rn && rn.startsWith('CS-')) lastDataRow = rowNumber;
+                }
+            });
+            targetRow = ws.getRow(lastDataRow + 1);
+        }
+
+        // Write fields
+        const setCell = (col, val) => { if (val !== undefined && val !== null) targetRow.getCell(col).value = val; };
+
+        setCell(EXCEL_COL.repairNumber, data.repairNumber);
+        if (data.ticketNumber) setCell(EXCEL_COL.ticketNumber, Number(data.ticketNumber) || data.ticketNumber);
+        if (data.warranty !== undefined) setCell(EXCEL_COL.warranty, data.warranty ? 'J' : 'N');
+        if (data.selfRepair !== undefined) setCell(EXCEL_COL.selfRepair, data.selfRepair ? 'J' : 'N');
+        if (data.errorDescription) setCell(EXCEL_COL.errorDesc, data.errorDescription);
+        if (data.troubleshooting) setCell(EXCEL_COL.troubleshooting, data.troubleshooting);
+        if (data.model) setCell(EXCEL_COL.model, data.model);
+        if (data.serialNumber) setCell(EXCEL_COL.serialNumber, data.serialNumber);
+        if (data.customerName) setCell(EXCEL_COL.customerName, data.customerName);
+
+        if (data.productionDate) setCell(EXCEL_COL.productionDate, new Date(data.productionDate));
+        if (data.dateOfReceipt) setCell(EXCEL_COL.dateOfReceipt, new Date(data.dateOfReceipt));
+        if (data.releaseDate) setCell(EXCEL_COL.releaseDate, new Date(data.releaseDate));
+
+        // Defective parts (up to 6)
+        if (data.defectiveParts && Array.isArray(data.defectiveParts)) {
+            const partCols = [EXCEL_COL.defectPart1, EXCEL_COL.defectPart2, EXCEL_COL.defectPart3,
+                              EXCEL_COL.defectPart4, EXCEL_COL.defectPart5, EXCEL_COL.defectPart6];
+            for (let i = 0; i < partCols.length; i++) {
+                setCell(partCols[i], data.defectiveParts[i] || null);
+            }
+        }
+
+        if (data.status === 'completed') setCell(EXCEL_COL.completed, '√');
+
+        targetRow.commit();
+        await wb.xlsx.writeFile(EXCEL_FILE);
+
+        res.json({ success: true, mode, repairNumber: data.repairNumber, row: targetRow.number });
+    } catch (err) {
+        res.json({ success: false, error: err.message });
+    }
 });
 
 const PORT = process.env.PORT || 3211;
