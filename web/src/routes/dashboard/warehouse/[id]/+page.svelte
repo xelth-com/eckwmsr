@@ -3,6 +3,7 @@
     import { onMount } from 'svelte';
     import { api } from '$lib/api';
     import { goto } from '$app/navigation';
+    import { base } from '$app/paths';
     import { toastStore } from '$lib/stores/toastStore';
 
     let whId = $page.params.id;
@@ -47,7 +48,7 @@
     }
 
     function goBack() {
-        goto('/dashboard/warehouse');
+        goto(`${base}/dashboard/warehouse`);
     }
 
     function toggleEdit() {

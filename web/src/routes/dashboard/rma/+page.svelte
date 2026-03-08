@@ -2,6 +2,7 @@
     import { onMount } from 'svelte';
     import { api } from '$lib/api';
     import { goto } from '$app/navigation';
+    import { base } from '$app/paths';
     import { toastStore } from '$lib/stores/toastStore';
 
     let rmas = [];
@@ -26,11 +27,11 @@
     }
 
     function openRMA(id) {
-        goto(`/dashboard/rma/${id}`);
+        goto(`${base}/dashboard/rma/${id}`);
     }
 
     function createNew() {
-        goto('/dashboard/rma/new');
+        goto(`${base}/dashboard/rma/new`);
     }
 
     function formatDate(dateStr) {

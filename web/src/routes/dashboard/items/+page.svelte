@@ -2,6 +2,7 @@
 import { onMount } from 'svelte';
 import { api } from '$lib/api';
 import { goto } from '$app/navigation';
+import { base } from '$app/paths';
 
 let items = [];
 let loading = true;
@@ -19,7 +20,7 @@ onMount(async () => {
 });
 
 function openItem(id) {
-    goto(`/dashboard/items/${id}`);
+    goto(`${base}/dashboard/items/${id}`);
 }
 </script>
 

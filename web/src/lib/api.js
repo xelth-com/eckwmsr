@@ -20,11 +20,10 @@ const processQueue = (error, token = null) => {
 
 function redirectToLogin() {
     if (typeof window !== 'undefined') {
-        let basePath = '/E';
-        if (window.location.pathname.includes('/dashboard')) {
-            basePath = window.location.pathname.split('/dashboard')[0] || '/E';
-        }
-        window.location.href = `${basePath}/login`;
+        localStorage.removeItem('token');
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('refresh_token');
+        window.location.href = `${BASE_URL}/login`;
     }
 }
 

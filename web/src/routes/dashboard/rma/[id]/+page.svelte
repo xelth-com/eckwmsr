@@ -52,7 +52,7 @@
             formData = { ...data };
         } catch (e) {
             toastStore.add('Error loading RMA', 'error');
-            goto('/dashboard/rma');
+            goto(`${base}/dashboard/rma`);
         } finally {
             loading = false;
         }
@@ -77,7 +77,7 @@
                 await api.put(`/rma/${rmaId}`, formData);
                 toastStore.add('RMA Updated', 'success');
             }
-            goto('/dashboard/rma');
+            goto(`${base}/dashboard/rma`);
         } catch (e) {
             toastStore.add(`Error: ${e.message}`, 'error');
         }
@@ -89,14 +89,14 @@
         try {
             await api.delete(`/rma/${rmaId}`);
             toastStore.add('RMA Deleted', 'success');
-            goto('/dashboard/rma');
+            goto(`${base}/dashboard/rma`);
         } catch (e) {
             toastStore.add(e.message, 'error');
         }
     }
 
     function goBack() {
-        goto('/dashboard/rma');
+        goto(`${base}/dashboard/rma`);
     }
 </script>
 

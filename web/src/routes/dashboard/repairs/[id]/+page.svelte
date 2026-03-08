@@ -74,7 +74,7 @@
             }
         } catch (e) {
             toastStore.add('Error loading Repair', 'error');
-            goto('/dashboard/repairs');
+            goto(`${base}/dashboard/repairs`);
         } finally {
             loading = false;
         }
@@ -97,7 +97,7 @@
                 await api.put(`/rma/${orderId}`, formData);
                 toastStore.add('Repair Updated', 'success');
             }
-            goto('/dashboard/repairs');
+            goto(`${base}/dashboard/repairs`);
         } catch (e) {
             toastStore.add(`Error: ${e.message}`, 'error');
         }
@@ -108,14 +108,14 @@
         try {
             await api.delete(`/rma/${orderId}`);
             toastStore.add('Repair Deleted', 'success');
-            goto('/dashboard/repairs');
+            goto(`${base}/dashboard/repairs`);
         } catch (e) {
             toastStore.add(e.message, 'error');
         }
     }
 
     function goBack() {
-        goto('/dashboard/repairs');
+        goto(`${base}/dashboard/repairs`);
     }
 
     // --- Dynamic Fields Logic ---
