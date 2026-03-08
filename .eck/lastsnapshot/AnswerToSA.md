@@ -1,66 +1,60 @@
-# Task Complete: Dynamic Repair Schemas & Excel Sync
+# Task Complete: E2E Browser Test — Excel Reparaturliste Integration
 
 ## Date: 2026-03-08
 
 ### Status
-✅ **COMPLETE — Excel bidirectional sync + dynamic metadata renderer on Repair Detail page**
+✅ **COMPLETE — All 7 test steps passed. Excel integration works end-to-end.**
 
 ---
 
-## What Was Done
+## Test Execution (Chrome MCP Browser Automation)
 
-### 1. Excel Sync Backend (`scraper/server.js`)
-- Added `exceljs` dependency for reading/writing `.xlsm` files (preserves VBA macros)
-- **`GET /api/excel/info`** — file metadata: path, size, repair count, last repair number
-- **`POST /api/excel/read`** — reads repairs from "Körperanalyse" sheet, returns JSON (newest first, with limit/offset)
-- **`POST /api/excel/write-row`** — adds or updates a row by repair number (with automatic `.bak` backup)
-- Handles Excel formula cells (shared formulas), hyperlink cells, rich text, Date objects
-- Column mapping (`EXCEL_COL` object) easily replaceable for other Excel files
-- 30+ mapped fields: ticket#, repair#, warranty, error description, troubleshooting, defective parts (6 slots), firmware before/after, model, serial, customer, dates, completion status
+### Test Steps & Results
 
-### 2. Excel Sync UI (`web/src/routes/dashboard/scrapers/+page.svelte`)
-- New "Excel Reparaturliste" section (orange themed) on Scrapers page
-- **Info button** — shows repair count, last repair number, file modification date
-- **Import tab** (Excel → DB): Read Excel → table with checkboxes → Import selected to orders table
-- **Export tab** (DB → Excel): Load repairs from DB → select → Write to Excel file
-- All operations manual, with preview, nothing automatic
-- Import creates `orders` records with `type=repair`, maps all Excel fields to order fields + metadata JSONB
+| # | Step | Action | Result |
+|---|------|--------|--------|
+| 1 | Login | Navigate to `/E/login`, submit credentials | **PASS** — Redirected to dashboard |
+| 2 | Excel Info | Click "i Info" on Scrapers page | **PASS** — "1224 repairs \| Last: CS-DE-2603060 \| Modified: 6.3.2026" |
+| 3 | Read Excel | Click "Read Excel" (limit 30) | **PASS** — Table shows 30 of 1224 repairs with all columns |
+| 4 | Select & Import | Check row CS-DE-2603060, click "Import 1 selected to DB" | **PASS** — "Created: 1, Updated: 0" |
+| 5 | Verify Repairs List | Navigate to `/E/dashboard/repairs` | **PASS** — CS-DE-2603060 visible, customer=VitaFit GmbH, status=IN_PROGRESS |
+| 6 | Repair Detail | Open `/E/dashboard/repairs/{id}` | **PASS** — Customer, serial (I81900225), issue (faulty measured values) correct |
+| 7 | Dynamic Attributes | Verify METADATA section | **PASS** — All fields rendered: FW Before/After, Production Date, Ticket#, Warranty, Self Repair |
 
-### 3. Dynamic Repair Schemas (`web/src/routes/dashboard/repairs/[id]/+page.svelte`)
-- **Replaced Parts**: tag-based editor bound to `partsUsed` JSON array (add/remove with Enter key support)
-- **Dynamic Attributes**: renders all `metadata` JSONB fields as editable form inputs
-  - Nested objects (e.g. `fwBefore: {kernel, digital, analog}`) → grouped sub-fields with header
-  - Boolean values → checkboxes
-  - Strings/numbers → text inputs
-  - System keys (`ticketId`, `trackingNumber`, `importedFromExcel`, `excelRow`) hidden from display
-- **Add Custom Field**: key/value input with type inference (true/false → boolean, numbers → number)
-- `formatKey()` converts camelCase to Title Case for display
+### Dynamic Attributes Verified
 
-### 4. Config
-- `.env`: Added `EXCEL_REPAIR_FILE` path (relative to project root)
-- `scraper/package.json`: Added `exceljs` dependency
+| Field | Value |
+|-------|-------|
+| FW Before Analog | 770MS-A070 |
+| FW Before Digital | DNO2-770DM-0369 |
+| FW Before Kernel | 1005 |
+| FW After Kernel | 1005 |
+| Production Date | 2019-05-03 |
+| Self Repair | N |
+| Ticket Number | 26129 |
+| Warranty | N |
 
 ---
 
-## Files Changed
+## Bug Found (Pre-existing, Not Excel-related)
 
-| File | Change |
-|------|--------|
-| `scraper/server.js` | +ExcelJS import, +EXCEL_COL mapping, +3 endpoints (info/read/write-row), +cellVal with formula/hyperlink/richtext handling |
-| `scraper/package.json` | +`exceljs` dependency |
-| `web/src/routes/dashboard/scrapers/+page.svelte` | +Excel Sync section (state, functions, UI, CSS) |
-| `web/src/routes/dashboard/repairs/[id]/+page.svelte` | Full rewrite: +partsUsed tags, +dynamic metadata grid, +custom field adder |
-| `.env` | +`EXCEL_REPAIR_FILE` |
-| `.eck/JOURNAL.md` | +2026-03-08 entry |
+**Row click navigation on Repairs list fails** — Clicking a repair row redirects to `/E/` instead of the detail page.
 
-## Build
-- `npm run build` — **OK** (SvelteKit static adapter)
-- Excel endpoints tested: info returns 1224 repairs, read returns correct data with proper cell parsing
+- **Root cause**: JWT token in `authStore` (localStorage) becomes stale. The `api.js` request handler gets 401 → tries refresh → fails → calls `redirectToLogin()` → cookie-based session redirects back to `/E/`.
+- **Impact**: Users cannot navigate to repair details via row click. Direct URL navigation works.
+- **Fix needed**: Ensure login form populates `authStore` with fresh JWT tokens, or unify cookie-based and Bearer token auth.
+
+---
+
+## Notes
+- Frontend rebuild (`npm run build`) was required — browser had cached old build without Excel section
+- Password for `d.suro@inbody.com` is NOT `admin123` — browser autofill had the correct password
+- Scraper (port 3211) was already running and healthy
 
 ---
 
 **Agent**: Expert Developer (The Fixer)
-**Status**: ✅ Complete
+**Status**: ✅ Complete — E2E test passed
 
 
 [SYSTEM: EMBEDDED]
