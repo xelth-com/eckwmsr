@@ -205,6 +205,7 @@ pub async fn handle_scan(
                 "title": format!("Order {}", o.order_number),
                 "subtitle": format!("{} — {}", o.customer_name, o.status),
                 "date": o.created_at.to_rfc3339(),
+                "barcode": o.order_number,
             }));
         }
     }
@@ -226,6 +227,7 @@ pub async fn handle_scan(
                 "title": format!("Item {}", it.name.as_deref().unwrap_or(&it.primary_barcode)),
                 "subtitle": it.primary_barcode,
                 "date": it.created_at.to_rfc3339(),
+                "barcode": it.primary_barcode,
             }));
         }
     }
@@ -246,6 +248,7 @@ pub async fn handle_scan(
             "title": prod.name,
             "subtitle": prod.default_code,
             "date": null,
+            "barcode": prod.barcode,
         }));
     }
 
