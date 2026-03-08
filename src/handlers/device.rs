@@ -229,6 +229,7 @@ pub async fn device_status(
 
     let mut resp = serde_json::json!({
         "status": status,
+        "repair_order_prefix": state.config.repair_order_prefix,
     });
 
     if let Some(key) = enc_key {

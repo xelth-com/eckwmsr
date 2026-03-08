@@ -93,13 +93,15 @@ pub async fn create_order(
 
     let order_number = if payload.order_number.is_empty() {
         let prefix = match order_type.as_str() {
-            "rma" => "RMA",
-            "repair" => "REP",
-            _ => "ORD",
+            "rma" => "RMA-".to_string(),
+            "repair" => state.config.repair_order_prefix.clone(),
+            _ => "ORD-".to_string(),
         };
+        // Trim trailing dash to avoid double-dash with date
+        let prefix_trimmed = prefix.trim_end_matches('-');
         format!(
-            "{}{}-{}",
-            prefix,
+            "{}-{}-{}",
+            prefix_trimmed,
             Utc::now().format("%Y%m%d"),
             rand::random::<u16>()
         )

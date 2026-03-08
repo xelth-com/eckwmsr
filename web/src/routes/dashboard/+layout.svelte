@@ -9,6 +9,10 @@
     import { page } from "$app/stores";
     import { base } from "$app/paths";
 
+    // Ambiguous collision modal state
+    let showAmbiguousModal = false;
+    let ambiguousCandidates = [];
+
     onMount(() => {
         // 1. Auth Guard
         const unsubscribeAuth = authStore.subscribe((state) => {
@@ -36,6 +40,24 @@
         authStore.logout();
         wsStore.close();
         goto(`${base}/login`);
+    }
+
+    function resolveCandidate(candidate) {
+        showAmbiguousModal = false;
+        ambiguousCandidates = [];
+        const id = candidate.id;
+        if (candidate.type === "order") {
+            goto(`${base}/dashboard/repairs/${id}`);
+        } else if (candidate.type === "item") {
+            goto(`${base}/dashboard/items/${id}`);
+        } else if (candidate.type === "product") {
+            goto(`${base}/dashboard/items/${id}`);
+        }
+    }
+
+    function dismissAmbiguous() {
+        showAmbiguousModal = false;
+        ambiguousCandidates = [];
     }
 
     // Reactive listener for WebSocket messages
@@ -86,15 +108,28 @@
 
             const data = await res.json();
 
+            // Handle ambiguous collision — multiple matches
+            if (data.type === "ambiguous") {
+                ambiguousCandidates = data.data?.candidates || [];
+                showAmbiguousModal = true;
+                toastStore.add("Multiple matches — please select", "warning");
+                return;
+            }
+
+            // Soft trust warning
+            if (data.trust === "soft") {
+                toastStore.add("Opened via external code. Please verify data.", "warning", 4000);
+            }
+
             // Show result
             toastStore.add(data.message, "success");
 
             // Handle Navigation / Action based on type
-            if (data.type === "item" && data.data?.id) {
-                // Navigate to item detail using internal ID
+            if (data.type === "order" && data.data?.id) {
+                goto(`${base}/dashboard/repairs/${data.data.id}`);
+            } else if (data.type === "item" && data.data?.id) {
                 goto(`${base}/dashboard/items/${data.data.id}`);
             } else if (data.type === "box" && data.data?.id) {
-                // Box detail page pending - just show console log for now
                 console.log("Box scanned:", data.data);
                 toastStore.add(
                     `Box ${data.data.name || data.data.id} scanned`,
@@ -105,7 +140,6 @@
             } else if (data.type === "product" && data.data?.id) {
                 goto(`${base}/dashboard/items/${data.data.id}`);
             } else if (data.type === "label") {
-                // Label codes contain action metadata - just log for now
                 console.log("Label scanned:", data.data);
             }
         } catch (e) {
@@ -222,6 +256,25 @@
     </main>
 
     <ToastContainer />
+
+    {#if showAmbiguousModal}
+        <div class="modal-overlay" on:click={dismissAmbiguous}>
+            <div class="modal-card" on:click|stopPropagation>
+                <h3>Multiple Matches Found</h3>
+                <p class="modal-hint">This barcode matched multiple records. Select the correct one:</p>
+                <div class="candidates-list">
+                    {#each ambiguousCandidates as c}
+                        <button class="candidate-btn" on:click={() => resolveCandidate(c)}>
+                            <span class="candidate-type" class:type-order={c.type === 'order'} class:type-item={c.type === 'item'}>{c.type}</span>
+                            <span class="candidate-title">{c.title}</span>
+                            {#if c.subtitle}<span class="candidate-sub">{c.subtitle}</span>{/if}
+                        </button>
+                    {/each}
+                </div>
+                <button class="cancel-btn" on:click={dismissAmbiguous}>Cancel</button>
+            </div>
+        </div>
+    {/if}
 </div>
 
 <style>
@@ -341,4 +394,20 @@
         padding: 2rem;
         background: #121212;
     }
+
+    /* Ambiguous collision modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; display: flex; align-items: center; justify-content: center; }
+    .modal-card { background: #1e1e1e; border: 1px solid #444; border-radius: 12px; padding: 2rem; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; }
+    .modal-card h3 { color: #fbbf24; margin: 0 0 0.5rem; font-size: 1.2rem; }
+    .modal-hint { color: #888; font-size: 0.85rem; margin-bottom: 1.25rem; }
+    .candidates-list { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+    .candidate-btn { display: flex; align-items: center; gap: 0.75rem; background: #2a2a2a; border: 1px solid #444; border-radius: 8px; padding: 0.8rem 1rem; cursor: pointer; color: #fff; text-align: left; transition: all 0.15s; }
+    .candidate-btn:hover { background: #333; border-color: #4a69bd; }
+    .candidate-type { font-size: 0.7rem; text-transform: uppercase; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px; white-space: nowrap; }
+    .candidate-type.type-order { background: #3a2a0a; color: #fb923c; }
+    .candidate-type.type-item { background: #0a2a3a; color: #38bdf8; }
+    .candidate-title { font-weight: 600; flex: 1; }
+    .candidate-sub { font-size: 0.8rem; color: #888; }
+    .cancel-btn { width: 100%; background: #333; color: #aaa; border: 1px solid #444; padding: 0.6rem; border-radius: 6px; cursor: pointer; }
+    .cancel-btn:hover { background: #444; color: #fff; }
 </style>

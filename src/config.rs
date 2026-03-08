@@ -20,6 +20,8 @@ pub struct Config {
     pub gemini_fallback_model: String,
     pub odoo: OdooConfig,
     pub twenty: TwentyConfig,
+    /// Dynamic prefix for repair order numbers (e.g. "REP-", "CS-DE-")
+    pub repair_order_prefix: String,
     /// QR code prefixes to match during decryption (e.g. ["ECK1.COM/"])
     pub qr_prefixes: Vec<String>,
     /// Tenant suffix appended to QR codes (e.g. "IB")
@@ -82,6 +84,9 @@ pub fn load_config() -> Config {
     let gemini_fallback_model =
         env::var("GEMINI_FALLBACK_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".to_string());
 
+    let repair_order_prefix =
+        env::var("REPAIR_ORDER_PREFIX").unwrap_or_else(|_| "REP-".to_string());
+
     let qr_prefixes: Vec<String> = env::var("QR_PREFIXES")
         .unwrap_or_else(|_| "ECK1.COM/".to_string())
         .split(',')
@@ -124,6 +129,7 @@ pub fn load_config() -> Config {
         gemini_fallback_model,
         odoo,
         twenty,
+        repair_order_prefix,
         qr_prefixes,
         qr_tenant_suffix,
         qr_iv_length,

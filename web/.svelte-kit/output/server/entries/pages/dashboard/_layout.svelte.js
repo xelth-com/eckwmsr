@@ -65,6 +65,8 @@ function MeshStatus($$renderer, $$props) {
 function _layout($$renderer, $$props) {
   $$renderer.component(($$renderer2) => {
     var $$store_subs;
+    let showAmbiguousModal = false;
+    let ambiguousCandidates = [];
     onDestroy(() => {
     });
     function handleWsMessage(msg) {
@@ -98,8 +100,19 @@ function _layout($$renderer, $$props) {
           throw new Error(err.error || "Scan failed");
         }
         const data = await res.json();
+        if (data.type === "ambiguous") {
+          ambiguousCandidates = data.data?.candidates || [];
+          showAmbiguousModal = true;
+          toastStore.add("Multiple matches — please select", "warning");
+          return;
+        }
+        if (data.trust === "soft") {
+          toastStore.add("Opened via external code. Please verify data.", "warning", 4e3);
+        }
         toastStore.add(data.message, "success");
-        if (data.type === "item" && data.data?.id) {
+        if (data.type === "order" && data.data?.id) {
+          goto(`${base}/dashboard/repairs/${data.data.id}`);
+        } else if (data.type === "item" && data.data?.id) {
           goto(`${base}/dashboard/items/${data.data.id}`);
         } else if (data.type === "box" && data.data?.id) {
           console.log("Box scanned:", data.data);
@@ -126,11 +139,10 @@ function _layout($$renderer, $$props) {
       // Handle Scan Events
       // Play sound (optional, browser policy might block)
       // const audio = new Audio('/beep.mp3'); audio.play().catch(e=>{});
+      // Handle ambiguous collision — multiple matches
+      // Soft trust warning
       // Show result
       // Handle Navigation / Action based on type
-      // Navigate to item detail using internal ID
-      // Box detail page pending - just show console log for now
-      // Label codes contain action metadata - just log for now
       base
     )}/dashboard`)}${attr_class("svelte-2agd5u", void 0, {
       "active": store_get($$store_subs ??= {}, "$page", page).url.pathname === `${base}/dashboard` || store_get($$store_subs ??= {}, "$page", page).url.pathname === "/dashboard"
@@ -160,7 +172,30 @@ function _layout($$renderer, $$props) {
     slot($$renderer2, $$props, "default", {});
     $$renderer2.push(`<!--]--></main> `);
     ToastContainer($$renderer2);
-    $$renderer2.push(`<!----></div>`);
+    $$renderer2.push(`<!----> `);
+    if (showAmbiguousModal) {
+      $$renderer2.push("<!--[-->");
+      $$renderer2.push(`<div class="modal-overlay svelte-2agd5u"><div class="modal-card svelte-2agd5u"><h3 class="svelte-2agd5u">Multiple Matches Found</h3> <p class="modal-hint svelte-2agd5u">This barcode matched multiple records. Select the correct one:</p> <div class="candidates-list svelte-2agd5u"><!--[-->`);
+      const each_array = ensure_array_like(ambiguousCandidates);
+      for (let $$index = 0, $$length = each_array.length; $$index < $$length; $$index++) {
+        let c = each_array[$$index];
+        $$renderer2.push(`<button class="candidate-btn svelte-2agd5u"><span${attr_class("candidate-type svelte-2agd5u", void 0, {
+          "type-order": c.type === "order",
+          "type-item": c.type === "item"
+        })}>${escape_html(c.type)}</span> <span class="candidate-title svelte-2agd5u">${escape_html(c.title)}</span> `);
+        if (c.subtitle) {
+          $$renderer2.push("<!--[-->");
+          $$renderer2.push(`<span class="candidate-sub svelte-2agd5u">${escape_html(c.subtitle)}</span>`);
+        } else {
+          $$renderer2.push("<!--[!-->");
+        }
+        $$renderer2.push(`<!--]--></button>`);
+      }
+      $$renderer2.push(`<!--]--></div> <button class="cancel-btn svelte-2agd5u">Cancel</button></div></div>`);
+    } else {
+      $$renderer2.push("<!--[!-->");
+    }
+    $$renderer2.push(`<!--]--></div>`);
     if ($$store_subs) unsubscribe_stores($$store_subs);
   });
 }

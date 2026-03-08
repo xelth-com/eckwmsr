@@ -240,9 +240,11 @@ impl RepairService {
             return Ok(());
         }
 
-        // Generate new order number
+        // Generate new order number using dynamic prefix from config
+        let prefix = state.config.repair_order_prefix.trim_end_matches('-');
         let order_number = format!(
-            "REP-{}-{:04}",
+            "{}-{}-{:04}",
+            prefix,
             Utc::now().format("%Y%m%d"),
             rand::random::<u16>()
         );
