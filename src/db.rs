@@ -76,8 +76,8 @@ pub async fn start_embedded() -> Result<(postgresql_embedded::PostgreSQL, String
     settings.temporary = false;
     settings.data_dir = std::fs::canonicalize(&data_dir)?;
     settings.port = 5433;
-    settings.username = "eckwms".to_string();
-    settings.password = "eckwms".to_string();
+    settings.username = "postgres".to_string();
+    settings.password = "postgres".to_string();
 
     let mut pg = postgresql_embedded::PostgreSQL::new(settings);
 
