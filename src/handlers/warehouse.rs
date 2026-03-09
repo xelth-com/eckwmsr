@@ -47,7 +47,7 @@ pub async fn list_items(
         .await
         .map_err(|e| { error!("DB query error: {}", e); StatusCode::INTERNAL_SERVER_ERROR })?;
 
-    let mut qty_map: HashMap<i64, f64> = HashMap::new();
+    let mut qty_map: HashMap<uuid::Uuid, f64> = HashMap::new();
     for q in quants {
         *qty_map.entry(q.product_id).or_insert(0.0) += q.quantity;
     }

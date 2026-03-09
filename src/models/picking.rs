@@ -2,23 +2,22 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 use super::odoo_types::OdooString;
 
-/// StockPicking mirrors Odoo 'stock.picking' (Transfer Orders)
-/// Matches Go's `StockPicking` struct from `internal/models/stock.go`
+/// StockPicking — UUID-native transfer order entity
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "stock_picking")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
-    pub id: i64,
+    pub id: Uuid,
     #[sea_orm(unique)]
     pub name: String,
     pub state: String,
-    pub location_id: i64,
-    pub location_dest_id: i64,
+    pub location_id: Uuid,
+    pub location_dest_id: Uuid,
     pub scheduled_date: DateTimeUtc,
     pub origin: OdooString,
     pub priority: String,
-    pub picking_type_id: Option<i64>,
-    pub partner_id: Option<i64>,
+    pub picking_type_id: Option<Uuid>,
+    pub partner_id: Option<Uuid>,
     pub date_done: Option<DateTimeUtc>,
 }
 

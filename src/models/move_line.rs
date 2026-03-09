@@ -2,21 +2,20 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 use super::odoo_types::OdooString;
 
-/// StockMoveLine mirrors Odoo 'stock.move.line' (Move Details)
-/// Matches Go's `StockMoveLine` struct from `internal/models/stock.go`
+/// StockMoveLine — UUID-native move line entity
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "stock_move_line")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
-    pub id: i64,
-    pub picking_id: i64,
-    pub product_id: i64,
+    pub id: Uuid,
+    pub picking_id: Uuid,
+    pub product_id: Uuid,
     pub qty_done: f64,
-    pub location_id: i64,
-    pub location_dest_id: i64,
-    pub package_id: Option<i64>,
-    pub result_package_id: Option<i64>,
-    pub lot_id: Option<i64>,
+    pub location_id: Uuid,
+    pub location_dest_id: Uuid,
+    pub package_id: Option<Uuid>,
+    pub result_package_id: Option<Uuid>,
+    pub lot_id: Option<Uuid>,
     pub state: String,
     pub reference: OdooString,
 }

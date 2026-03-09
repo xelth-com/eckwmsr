@@ -718,28 +718,31 @@ impl SyncEngine {
                         .await?;
                 }
             }
-            _ => {
-                let parsed_ids: Vec<i64> = ids.iter().filter_map(|s| s.parse().ok()).collect();
-                if parsed_ids.is_empty() { return Ok(()); }
-                match entity_type {
-                    "product" => {
-                        products = product::Entity::find()
-                            .filter(product::Column::Id.is_in(parsed_ids))
-                            .all(&self.db).await?;
-                    }
-                    "location" => {
-                        locations = location::Entity::find()
-                            .filter(location::Column::Id.is_in(parsed_ids))
-                            .all(&self.db).await?;
-                    }
-                    "shipment" => {
-                        shipments = stock_picking_delivery::Entity::find()
-                            .filter(stock_picking_delivery::Column::Id.is_in(parsed_ids))
-                            .all(&self.db).await?;
-                    }
-                    _ => {}
+            "product" => {
+                let parsed_uuids: Vec<uuid::Uuid> = ids.iter().filter_map(|s| s.parse().ok()).collect();
+                if !parsed_uuids.is_empty() {
+                    products = product::Entity::find()
+                        .filter(product::Column::Id.is_in(parsed_uuids))
+                        .all(&self.db).await?;
                 }
             }
+            "location" => {
+                let parsed_uuids: Vec<uuid::Uuid> = ids.iter().filter_map(|s| s.parse().ok()).collect();
+                if !parsed_uuids.is_empty() {
+                    locations = location::Entity::find()
+                        .filter(location::Column::Id.is_in(parsed_uuids))
+                        .all(&self.db).await?;
+                }
+            }
+            "shipment" => {
+                let parsed_uuids: Vec<uuid::Uuid> = ids.iter().filter_map(|s| s.parse().ok()).collect();
+                if !parsed_uuids.is_empty() {
+                    shipments = stock_picking_delivery::Entity::find()
+                        .filter(stock_picking_delivery::Column::Id.is_in(parsed_uuids))
+                        .all(&self.db).await?;
+                }
+            }
+            _ => {}
         }
 
         client

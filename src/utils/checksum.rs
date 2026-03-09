@@ -108,7 +108,7 @@ async fn upsert_checksum(
         }
         Ok(None) => {
             let am = checksum::ActiveModel {
-                id: Default::default(),
+                id: Set(uuid::Uuid::new_v4()),
                 entity_type: Set(entity_type.to_string()),
                 entity_id: Set(entity_id.to_string()),
                 content_hash: Set(hash.to_string()),

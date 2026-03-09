@@ -2,18 +2,17 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// InventoryDiscrepancy records a mismatch between physical count and server stock.
-/// Mirrors Go's `InventoryDiscrepancy` from `internal/models/inventory.go`
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "inventory_discrepancy")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: Uuid,
     pub document_id: String,
-    pub product_id: i64,
+    pub product_id: Uuid,
     pub product_barcode: String,
     pub product_name: String,
     pub product_code: String,
-    pub location_id: i64,
+    pub location_id: Uuid,
     pub location_barcode: String,
     pub location_name: String,
     pub expected_qty: f64,

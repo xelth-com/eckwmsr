@@ -2,19 +2,18 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 use super::odoo_types::OdooString;
 
-/// StockLocation mirrors Odoo 'stock.location'
-/// Matches Go's `StockLocation` struct from `internal/models/stock.go`
+/// StockLocation — UUID-native location entity
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "stock_location")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
-    pub id: i64,
+    pub id: Uuid,
     pub name: String,
     pub complete_name: String,
     #[sea_orm(unique)]
     pub barcode: OdooString,
     pub usage: String,
-    pub location_id: Option<i64>,
+    pub location_id: Option<Uuid>,
     #[sea_orm(default_value = "true")]
     pub active: bool,
     #[serde(rename = "lastSyncedAt")]

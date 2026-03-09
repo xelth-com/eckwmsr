@@ -2,12 +2,11 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// EntityChecksum stores computed hashes for sync comparison
-/// Matches Go's `EntityChecksum` struct from `internal/models/sync.go`
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "entity_checksums")]
 pub struct Model {
-    #[sea_orm(primary_key)]
-    pub id: i64,
+    #[sea_orm(primary_key, auto_increment = false)]
+    pub id: Uuid,
     #[serde(rename = "entityType")]
     pub entity_type: String,
     #[serde(rename = "entityId")]

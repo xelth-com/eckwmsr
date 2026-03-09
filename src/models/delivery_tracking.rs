@@ -4,10 +4,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "delivery_tracking")]
 pub struct Model {
-    #[sea_orm(primary_key)]
-    pub id: i64,
+    #[sea_orm(primary_key, auto_increment = false)]
+    pub id: Uuid,
     #[sea_orm(index)]
-    pub picking_delivery_id: i64,
+    pub picking_delivery_id: Uuid,
     pub timestamp: DateTimeUtc,
     pub status: String,
     pub status_code: String,

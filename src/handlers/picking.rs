@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::info;
+use uuid::Uuid;
 
 use crate::{
     db::AppState,
@@ -23,16 +24,16 @@ use crate::{
 
 #[derive(Serialize)]
 pub struct EnrichedPicking {
-    pub id: i64,
+    pub id: Uuid,
     pub name: String,
     pub state: String,
-    pub location_id: i64,
-    pub location_dest_id: i64,
+    pub location_id: Uuid,
+    pub location_dest_id: Uuid,
     pub scheduled_date: chrono::DateTime<Utc>,
     pub origin: String,
     pub priority: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub partner_id: Option<i64>,
+    pub partner_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub date_done: Option<chrono::DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,18 +44,18 @@ pub struct EnrichedPicking {
 
 #[derive(Serialize)]
 pub struct EnrichedPickLine {
-    pub id: i64,
-    pub picking_id: i64,
-    pub product_id: i64,
+    pub id: Uuid,
+    pub picking_id: Uuid,
+    pub product_id: Uuid,
     pub product_name: String,
     pub product_barcode: String,
     pub product_code: String,
     pub qty_done: f64,
-    pub location_id: i64,
+    pub location_id: Uuid,
     pub location_name: String,
     pub location_barcode: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub rack_id: Option<i64>,
+    pub rack_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rack_name: Option<String>,
     pub rack_x: i32,
@@ -88,8 +89,7 @@ pub struct PickingQueryParams {
 
 // --- Handlers ---
 
-/// GET /api/odoo/pickings?state=assigned — lists pickings, optionally filtered by state.
-/// Mirrors Go's `listOdooPickings` which returns raw StockPicking rows.
+/// GET /api/odoo/pickings?state=assigned
 pub async fn list_odoo_pickings(
     State(state): State<Arc<AppState>>,
     axum::extract::Query(params): axum::extract::Query<PickingQueryParams>,
@@ -106,8 +106,7 @@ pub async fn list_odoo_pickings(
     Ok(Json(pickings))
 }
 
-/// GET /api/pickings/active — lists all assigned pickings with partner name and line counts.
-/// Mirrors Go's `listActivePickings` from `internal/handlers/picking.go`.
+/// GET /api/pickings/active
 pub async fn list_active_pickings(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<EnrichedPicking>>, StatusCode> {
@@ -168,21 +167,19 @@ pub async fn list_active_pickings(
     Ok(Json(result))
 }
 
-/// GET /api/pickings/:id/lines — returns enriched pick lines for a picking.
-/// Mirrors Go's `getPickingLines` from `internal/handlers/picking.go`.
+/// GET /api/pickings/:id/lines
 pub async fn get_picking_lines(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<i64>,
+    Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<EnrichedPickLine>>, (StatusCode, String)> {
     let lines = enrich_pick_lines(&state.db, id).await?;
     Ok(Json(lines))
 }
 
-/// POST /api/pickings/:id/lines/:line_id/confirm — validates barcodes and updates a pick line.
-/// Mirrors Go's `confirmPickLine` from `internal/handlers/picking.go`.
+/// POST /api/pickings/:id/lines/:line_id/confirm
 pub async fn confirm_pick_line(
     State(state): State<Arc<AppState>>,
-    Path((picking_id, line_id)): Path<(i64, i64)>,
+    Path((picking_id, line_id)): Path<(Uuid, Uuid)>,
     Json(payload): Json<ConfirmRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let line = move_line::Entity::find()
@@ -238,8 +235,6 @@ pub async fn confirm_pick_line(
         }
     }
 
-    // Compute new state before converting to ActiveModel
-    // qty_demand not in DB table — treat as qty_done for state logic
     let new_state = if payload.qty_done > 0.0 {
         "done".to_string()
     } else {
@@ -260,17 +255,16 @@ pub async fn confirm_pick_line(
     );
 
     Ok(Json(serde_json::json!({
-        "id": updated.id,
+        "id": updated.id.to_string(),
         "qty_done": updated.qty_done,
         "state": updated.state,
     })))
 }
 
-/// POST /api/pickings/:id/validate — marks a picking as done if all lines are complete.
-/// Mirrors Go's `validatePicking` from `internal/handlers/picking.go`.
+/// POST /api/pickings/:id/validate
 pub async fn validate_picking(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<i64>,
+    Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let pk = picking::Entity::find_by_id(id)
         .one(&state.db)
@@ -282,7 +276,6 @@ pub async fn validate_picking(
         return Err((StatusCode::CONFLICT, "Picking already completed".to_string()));
     }
 
-    // Check for unfinished lines: state != 'done'
     let unfinished = move_line::Entity::find()
         .filter(
             Condition::all()
@@ -312,18 +305,17 @@ pub async fn validate_picking(
     info!("Picking: Validated {} (ID {})", updated.name, updated.id);
 
     Ok(Json(serde_json::json!({
-        "id": updated.id,
+        "id": updated.id.to_string(),
         "name": updated.name,
         "state": updated.state,
         "date_done": updated.date_done,
     })))
 }
 
-/// GET /api/pickings/:id/route — returns lines ordered by TSP route optimization.
-/// Mirrors Go's `getPickingRoute` from `internal/handlers/picking.go`.
+/// GET /api/pickings/:id/route
 pub async fn get_picking_route(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<i64>,
+    Path(id): Path<Uuid>,
 ) -> Result<Json<RouteResponse>, (StatusCode, String)> {
     let mut lines = enrich_pick_lines(&state.db, id).await?;
 
@@ -335,11 +327,12 @@ pub async fn get_picking_route(
     }
 
     // Group lines by rack — build pick stops
-    let mut rack_stops: HashMap<i64, PickStop> = HashMap::new();
-    let mut lines_by_rack: HashMap<i64, Vec<usize>> = HashMap::new();
+    let mut rack_stops: HashMap<Uuid, PickStop> = HashMap::new();
+    let mut lines_by_rack: HashMap<Uuid, Vec<usize>> = HashMap::new();
+    let nil = Uuid::nil();
 
     for (i, line) in lines.iter().enumerate() {
-        let rack_key = line.rack_id.unwrap_or(0);
+        let rack_key = line.rack_id.unwrap_or(nil);
 
         rack_stops.entry(rack_key).or_insert_with(|| {
             let w = if line.rack_width == 0 { 50 } else { line.rack_width };
@@ -382,13 +375,10 @@ pub async fn get_picking_route(
 
 // --- Internal helpers ---
 
-/// Fetches and enriches move lines for a given picking ID.
-/// Mirrors Go's `enrichPickLines` from `internal/handlers/picking.go`.
 async fn enrich_pick_lines(
     db: &DatabaseConnection,
-    picking_id: i64,
+    picking_id: Uuid,
 ) -> Result<Vec<EnrichedPickLine>, (StatusCode, String)> {
-    // Verify picking exists
     picking::Entity::find_by_id(picking_id)
         .one(db)
         .await
@@ -401,10 +391,9 @@ async fn enrich_pick_lines(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Pre-load all racks for location→rack mapping
     let all_racks = rack::Entity::find().all(db).await.unwrap_or_default();
 
-    let mut location_to_rack: HashMap<i64, &rack::Model> = HashMap::new();
+    let mut location_to_rack: HashMap<Uuid, &rack::Model> = HashMap::new();
     for r in &all_racks {
         if let Some(mapped_loc_id) = r.mapped_location_id {
             location_to_rack.insert(mapped_loc_id, r);
@@ -435,19 +424,16 @@ async fn enrich_pick_lines(
             sequence: 0,
         };
 
-        // Enrich product
         if let Ok(Some(prod)) = product::Entity::find_by_id(ml.product_id).one(db).await {
             el.product_name = prod.name;
             el.product_barcode = prod.barcode.0;
             el.product_code = prod.default_code.0;
         }
 
-        // Enrich location + rack mapping
         if let Ok(Some(loc)) = location::Entity::find_by_id(ml.location_id).one(db).await {
             el.location_name = loc.complete_name.clone();
             el.location_barcode = loc.barcode.0.clone();
 
-            // Find rack: check location itself, then parent
             let mut matched_rack = location_to_rack.get(&loc.id).copied();
             if matched_rack.is_none() {
                 if let Some(parent_id) = loc.location_id {

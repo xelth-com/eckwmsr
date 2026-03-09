@@ -326,52 +326,44 @@ pub async fn pull_handler(
             }
             resp.order_item_events = query.all(&state.db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         }
-        _ => {
-            // Products, locations, shipments use i64 IDs; empty ids = return all
-            let parsed_ids: Vec<i64> = payload
-                .ids
-                .iter()
-                .filter_map(|s| s.parse().ok())
-                .collect();
-
-            match payload.entity_type.as_str() {
-                "product" => {
-                    let mut query = product::Entity::find();
-                    if !parsed_ids.is_empty() {
-                        query = query.filter(product::Column::Id.is_in(parsed_ids));
-                    }
-                    resp.products = query
-                        .all(&state.db)
-                        .await
-                        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-                }
-                "location" => {
-                    let mut query = location::Entity::find();
-                    if !parsed_ids.is_empty() {
-                        query = query.filter(location::Column::Id.is_in(parsed_ids));
-                    }
-                    resp.locations = query
-                        .all(&state.db)
-                        .await
-                        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-                }
-                "shipment" => {
-                    let mut query = stock_picking_delivery::Entity::find();
-                    if !parsed_ids.is_empty() {
-                        query = query.filter(stock_picking_delivery::Column::Id.is_in(parsed_ids));
-                    }
-                    resp.shipments = query
-                        .all(&state.db)
-                        .await
-                        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-                }
-                other => {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        format!("Unknown entity_type: {}", other),
-                    ));
-                }
+        "product" => {
+            let parsed_uuids: Vec<uuid::Uuid> = payload.ids.iter().filter_map(|s| s.parse().ok()).collect();
+            let mut query = product::Entity::find();
+            if !parsed_uuids.is_empty() {
+                query = query.filter(product::Column::Id.is_in(parsed_uuids));
             }
+            resp.products = query
+                .all(&state.db)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        }
+        "location" => {
+            let parsed_uuids: Vec<uuid::Uuid> = payload.ids.iter().filter_map(|s| s.parse().ok()).collect();
+            let mut query = location::Entity::find();
+            if !parsed_uuids.is_empty() {
+                query = query.filter(location::Column::Id.is_in(parsed_uuids));
+            }
+            resp.locations = query
+                .all(&state.db)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        }
+        "shipment" => {
+            let parsed_uuids: Vec<uuid::Uuid> = payload.ids.iter().filter_map(|s| s.parse().ok()).collect();
+            let mut query = stock_picking_delivery::Entity::find();
+            if !parsed_uuids.is_empty() {
+                query = query.filter(stock_picking_delivery::Column::Id.is_in(parsed_uuids));
+            }
+            resp.shipments = query
+                .all(&state.db)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        }
+        other => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Unknown entity_type: {}", other),
+            ));
         }
     }
 

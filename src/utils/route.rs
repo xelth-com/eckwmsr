@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 /// Matches Go's `PickStop` from `internal/services/picking/route.go`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PickStop {
-    pub line_ids: Vec<i64>,
-    pub rack_id: i64,
+    pub line_ids: Vec<uuid::Uuid>,
+    pub rack_id: uuid::Uuid,
     pub rack_x: i32,
     pub rack_y: i32,
     pub center_x: f64,
@@ -110,6 +110,11 @@ fn euclidean(x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
+
+    fn test_uuid(n: u128) -> Uuid {
+        Uuid::from_u128(n)
+    }
 
     #[test]
     fn test_empty_stops() {
@@ -122,8 +127,8 @@ mod tests {
     #[test]
     fn test_single_stop() {
         let stops = vec![PickStop {
-            line_ids: vec![1],
-            rack_id: 10,
+            line_ids: vec![test_uuid(1)],
+            rack_id: test_uuid(10),
             rack_x: 100,
             rack_y: 200,
             center_x: 100.0,
@@ -137,27 +142,26 @@ mod tests {
 
     #[test]
     fn test_nearest_neighbor_order() {
-        // Three stops: far(300,0), mid(200,0), near(100,0) from origin
         let stops = vec![
             PickStop {
-                line_ids: vec![3],
-                rack_id: 30,
+                line_ids: vec![test_uuid(3)],
+                rack_id: test_uuid(30),
                 rack_x: 300,
                 rack_y: 0,
                 center_x: 300.0,
                 center_y: 0.0,
             },
             PickStop {
-                line_ids: vec![1],
-                rack_id: 10,
+                line_ids: vec![test_uuid(1)],
+                rack_id: test_uuid(10),
                 rack_x: 100,
                 rack_y: 0,
                 center_x: 100.0,
                 center_y: 0.0,
             },
             PickStop {
-                line_ids: vec![2],
-                rack_id: 20,
+                line_ids: vec![test_uuid(2)],
+                rack_id: test_uuid(20),
                 rack_x: 200,
                 rack_y: 0,
                 center_x: 200.0,
@@ -165,24 +169,23 @@ mod tests {
             },
         ];
         let result = calculate_route(&stops, 0, 0);
-        // Should visit in order: near(100) -> mid(200) -> far(300)
-        assert_eq!(result.stops[0].rack_id, 10);
-        assert_eq!(result.stops[1].rack_id, 20);
-        assert_eq!(result.stops[2].rack_id, 30);
+        assert_eq!(result.stops[0].rack_id, test_uuid(10));
+        assert_eq!(result.stops[1].rack_id, test_uuid(20));
+        assert_eq!(result.stops[2].rack_id, test_uuid(30));
         assert_eq!(result.total_distance_px, 300.0);
     }
 
     #[test]
     fn test_diagonal_distance() {
         let stops = vec![PickStop {
-            line_ids: vec![1],
-            rack_id: 1,
+            line_ids: vec![test_uuid(1)],
+            rack_id: test_uuid(1),
             rack_x: 3,
             rack_y: 4,
             center_x: 3.0,
             center_y: 4.0,
         }];
         let result = calculate_route(&stops, 0, 0);
-        assert!((result.total_distance_px - 5.0).abs() < 1e-10); // 3-4-5 triangle
+        assert!((result.total_distance_px - 5.0).abs() < 1e-10);
     }
 }

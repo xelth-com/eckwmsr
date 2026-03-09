@@ -188,7 +188,7 @@ async fn process_inventory_count(
     };
 
     // Resolve location barcode -> StockLocation
-    let mut location_id: i64 = 0;
+    let mut location_id = Uuid::nil();
     let mut location_name = payload.location.clone();
     let loc_found = if let Ok(Some(loc)) = location::Entity::find()
         .filter(location::Column::Barcode.eq(&payload.location))
@@ -222,7 +222,7 @@ async fn process_inventory_count(
                     "Inventory: Unknown barcode {} — creating stub product (PDA is source of truth)",
                     item.barcode
                 );
-                let stub_id = -Utc::now().timestamp_micros();
+                let stub_id = Uuid::new_v4();
                 let stub = product::ActiveModel {
                     id: Set(stub_id),
                     name: Set(format!("[PDA] {}", item.barcode)),
@@ -254,7 +254,7 @@ async fn process_inventory_count(
                         (
                             false,
                             product::Model {
-                                id: stub_id,
+                                id: Uuid::new_v4(),
                                 name: format!("[PDA] {}", item.barcode),
                                 barcode: crate::models::odoo_types::OdooString(
                                     item.barcode.clone(),
@@ -297,7 +297,7 @@ async fn process_inventory_count(
             // Physical count wins — update StockQuant
             if quants.is_empty() {
                 let new_quant = quant::ActiveModel {
-                    id: Set(-Utc::now().timestamp_micros()),
+                    id: Set(Uuid::new_v4()),
                     product_id: Set(prod.id),
                     location_id: Set(location_id),
                     quantity: Set(counted_qty),

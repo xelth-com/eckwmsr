@@ -2,13 +2,12 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 use super::odoo_types::OdooString;
 
-/// ProductProduct mirrors Odoo 'product.product'
-/// Matches Go's `ProductProduct` struct from `internal/models/product.go`
+/// ProductProduct — UUID-native product entity
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "product_product")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
-    pub id: i64,
+    pub id: Uuid,
     pub default_code: OdooString,
     pub barcode: OdooString,
     pub name: String,

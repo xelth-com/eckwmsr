@@ -2,12 +2,11 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// ProductAlias links external codes (EAN, tracking) to internal IDs.
-/// Matches Go's `ProductAlias` from `internal/models/product_alias.go`.
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "product_aliases")]
 pub struct Model {
-    #[sea_orm(primary_key)]
-    pub id: i32,
+    #[sea_orm(primary_key, auto_increment = false)]
+    pub id: Uuid,
     pub external_code: String,
     pub internal_id: String,
     #[sea_orm(column_name = "type", column_type = "String(StringLen::None)")]

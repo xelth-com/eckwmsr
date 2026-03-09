@@ -19,7 +19,7 @@ use crate::{
 
 #[derive(Deserialize)]
 pub struct CreateShipmentReq {
-    pub picking_id: i64,
+    pub picking_id: Uuid,
     pub provider_code: String,
 }
 
@@ -68,7 +68,7 @@ pub async fn list_shipments(
 
 pub async fn get_shipment(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<i64>,
+    Path(id): Path<Uuid>,
 ) -> Result<Json<stock_picking_delivery::Model>, (StatusCode, String)> {
     let shipment = stock_picking_delivery::Entity::find_by_id(id)
         .one(&state.db)
@@ -81,7 +81,7 @@ pub async fn get_shipment(
 
 pub async fn cancel_shipment(
     State(_state): State<Arc<AppState>>,
-    Path(_id): Path<i64>,
+    Path(_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     Ok(Json(serde_json::json!({"status": "cancelled"})))
 }
@@ -516,7 +516,7 @@ async fn perform_dhl_import(
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /// Get or create a delivery carrier by provider_code
-async fn ensure_carrier(state: &Arc<AppState>, code: &str, name: &str) -> Option<i64> {
+async fn ensure_carrier(state: &Arc<AppState>, code: &str, name: &str) -> Option<Uuid> {
     if let Ok(Some(c)) = delivery_carrier::Entity::find()
         .filter(delivery_carrier::Column::ProviderCode.eq(code))
         .one(&state.db)

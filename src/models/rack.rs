@@ -1,14 +1,12 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-/// WarehouseRack represents a storage rack on the visual warehouse blueprint.
-/// Matches Go's `WarehouseRack` struct from `internal/models/rack.go`.
-/// Critical for TSP route optimization (pos_x, pos_y coordinates).
+/// WarehouseRack — UUID-native rack entity for visual warehouse blueprint
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "warehouse_racks")]
 pub struct Model {
-    #[sea_orm(primary_key)]
-    pub id: i64,
+    #[sea_orm(primary_key, auto_increment = false)]
+    pub id: Uuid,
     pub name: String,
     pub prefix: Option<String>,
     #[sea_orm(default_value = "1")]
@@ -18,8 +16,8 @@ pub struct Model {
     pub start_index: i32,
     #[sea_orm(default_value = "0")]
     pub sort_order: i32,
-    pub warehouse_id: Option<i64>,
-    pub mapped_location_id: Option<i64>,
+    pub warehouse_id: Option<Uuid>,
+    pub mapped_location_id: Option<Uuid>,
     #[sea_orm(default_value = "0")]
     pub pos_x: i32,
     #[sea_orm(default_value = "0")]
