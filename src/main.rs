@@ -361,6 +361,15 @@ async fn main() {
     }
     info!("Peer health check started (every 60s, mutual verification)");
 
+    // Outbound Mesh WebSocket Client
+    {
+        let ws_client_state = app_state.clone();
+        tokio::spawn(async move {
+            crate::sync::ws_client::start_outbound_ws_loop(ws_client_state).await;
+        });
+        info!("Outbound Mesh WS client loop started");
+    }
+
     // Startup sync: pull all entity types from known mesh peers (fire-and-forget)
     {
         let startup_sync_state = app_state.clone();
