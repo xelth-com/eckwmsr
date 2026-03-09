@@ -22,3 +22,4 @@ pub mod pda_users;
 pub mod scraper_proxy;
 pub mod support;
 pub mod analysis;
+pub mod crm;

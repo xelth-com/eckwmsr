@@ -465,6 +465,8 @@ async fn main() {
         .route("/support/import-thread", post(handlers::support::import_thread))
         // Analysis & Research
         .route("/analysis/support-dump", get(handlers::analysis::support_dump))
+        // CRM write-back API
+        .route("/crm/:entity_type/:id", put(handlers::crm::update_entity))
         // Admin Config & Mesh Management
         .route("/admin/config/save-key", post(handlers::config::save_network_key))
         .route("/admin/mesh/:id", delete(handlers::mesh::delete_node))
