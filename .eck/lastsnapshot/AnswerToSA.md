@@ -1,38 +1,55 @@
-# Task Complete: Entity Checksums for Merkle Tree Sync (Stage A)
+# Task Complete: Migrate All Legacy Integer IDs to UUID
 
 ## Date: 2026-03-09
 
 ### Status
-✅ **COMPLETE — Entity checksums are now recorded on every local mutation and incoming sync.**
+✅ **COMPLETE — All entity PKs and FKs are now UUID. Compiles clean. DB wipe required on next start.**
 
 ---
 
 ## What Was Done
 
 ### Summary
-Created `record_payload_checksums` in `src/utils/checksum.rs` and hooked it into all three sync paths: `push_to_all_peers`, `push_handler`, and `apply_pull_response`. Every entity that flows through the sync pipeline now has its SHA-256 checksum upserted into `entity_checksums`.
+Migrated all Sea-ORM models from legacy `i64`/`i32` primary keys to `Uuid`. Updated all handlers, sync engine, DTOs, and route optimization to use UUID types throughout.
 
-### Changes (4 files)
+### Models Updated (14 files)
 
-| File | Change |
-|------|--------|
-| `src/utils/checksum.rs` | Added `record_payload_checksums()` and `upsert_checksum()` — iterates all 10 entity arrays in PushPayload, computes hash via ChecksumCalculator, upserts into entity_checksums |
-| `src/handlers/mesh_sync.rs` | Hooked checksums into `push_to_all_peers` (before peer iteration) and `push_handler` (before consuming payload) |
-| `src/sync/engine.rs` | Hooked checksums into `apply_pull_response` (clones PullResponse into PushPayload before upserts) |
-| `src/models/checksum.rs` | Fixed `id` type from `i32` to `i64` to match DB schema (`bigint`) |
+| Model | PK Change | FK Changes |
+|-------|-----------|------------|
+| `product.rs` | `i64` → `Uuid` | — |
+| `location.rs` | `i64` → `Uuid` | `location_id: Option<Uuid>` |
+| `quant.rs` | `i64` → `Uuid` | `product_id`, `location_id`, `lot_id`, `package_id` → `Uuid` |
+| `picking.rs` | `i64` → `Uuid` | `location_id`, `location_dest_id`, `picking_type_id`, `partner_id` → `Uuid` |
+| `move_line.rs` | `i64` → `Uuid` | `picking_id`, `product_id`, `location_id`, `location_dest_id`, `package_id`, `result_package_id`, `lot_id` → `Uuid` |
+| `rack.rs` | `i64` → `Uuid` | `warehouse_id`, `mapped_location_id` → `Uuid` |
+| `partner.rs` | `i64` → `Uuid` | `state_id`, `country_id` → `Uuid` |
+| `delivery_carrier.rs` | `i64` → `Uuid` | — |
+| `stock_picking_delivery.rs` | `i64` → `Uuid` | `picking_id`, `carrier_id` → `Uuid` |
+| `delivery_tracking.rs` | `i64` → `Uuid` | `picking_delivery_id` → `Uuid` |
+| `device_intake.rs` | `i32` → `Uuid` | `odoo_repair_id` kept as `i64` (external) |
+| `checksum.rs` | `i64` → `Uuid` | — |
+| `product_alias.rs` | `i32` → `Uuid` | — |
+| `inventory_discrepancy.rs` | — (already Uuid) | `product_id`, `location_id` → `Uuid` |
 
-### Design
+### Handlers & Services Updated (6+ files)
 
-- **Upsert strategy**: Select by `(entity_type, entity_id)` → update if hash changed, insert if new. Uses the existing `idx_entity_lookup` btree index.
-- **Checksum calculation**: Reuses `ChecksumCalculator::compute_checksum()` which strips timestamp fields and produces deterministic SHA-256 hashes.
-- **Non-blocking errors**: Checksum failures are logged as warnings but never block entity sync operations.
-- **All 10 entity types covered**: product, location, shipment, user, order, document, file_resource, attachment, item, order_item_event.
+| File | Changes |
+|------|---------|
+| `handlers/picking.rs` | All DTOs and Path params `i64` → `Uuid`, HashMap keys → `Uuid` |
+| `handlers/delivery.rs` | Path params, `CreateShipmentReq`, `ensure_carrier` return type → `Uuid` |
+| `handlers/repair.rs` | Stub product/quant creation uses `Uuid::new_v4()`, location_id → `Uuid` |
+| `handlers/warehouse.rs` | `qty_map` HashMap key → `Uuid` |
+| `handlers/mesh_sync.rs` | pull_handler: products/locations/shipments now use UUID parsing |
+| `sync/engine.rs` | perform_push: products/locations/shipments use UUID parsing |
+| `utils/route.rs` | `PickStop.rack_id` and `line_ids` → `Uuid`, tests updated |
+| `utils/checksum.rs` | `upsert_checksum` inserts with `Uuid::new_v4()` |
 
-### Note on entity_checksums.id type
-The production DB uses `bigint` (auto-increment sequence). The Rust model previously had `i32` — fixed to `i64`. If UUID PKs are desired, that requires a DB migration (ALTER TABLE + drop sequence).
+### Database
+- **Embedded PG data must be wiped** — `create_schema` will recreate all tables with UUID columns on next server start.
+- No migration needed — dev environment, clean slate.
 
 ### Compilation
-- `cargo check` — ✅ clean (no new warnings or errors)
+- `cargo check` — ✅ clean (0 errors, only pre-existing warnings)
 
 ---
 
