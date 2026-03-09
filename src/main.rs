@@ -26,6 +26,7 @@ use crate::services::delivery::DeliveryService;
 use crate::services::delivery_dhl::DhlProvider;
 use crate::services::delivery_opal::OpalProvider;
 use crate::services::odoo::OdooClient;
+use migration::{Migrator, MigratorTrait};
 
 /// Compile-time timestamp (set by build.rs)
 const BUILT_AT: &str = match option_env!("BUILT_AT") {
@@ -79,11 +80,13 @@ async fn main() {
         }
     };
 
-    // Ensure all tables exist (uses IF NOT EXISTS, safe for any database)
-    if let Err(e) = db::create_schema(&db_conn).await {
-        error!("Schema creation failed: {}", e);
+    // Apply Sea-ORM Migrations
+    info!("Running database migrations...");
+    if let Err(e) = Migrator::up(&db_conn, None).await {
+        error!("Database migration failed: {}", e);
         std::process::exit(1);
     }
+    info!("Database migrations complete.");
 
     // Initialize Sync Engine
     let security_layer = SecurityLayer::new(SyncNodeRole::Peer, &cfg.sync_network_key);

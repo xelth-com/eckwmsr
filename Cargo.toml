@@ -1,9 +1,13 @@
+[workspace]
+members = [".", "migration"]
+
 [package]
 name = "eckwmsr"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+migration = { path = "migration" }
 axum = { version = "0.7", features = ["multipart", "ws"] }
 futures-util = "0.3"
 tokio = { version = "1.37", features = ["full"] }
