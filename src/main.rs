@@ -401,6 +401,54 @@ async fn main() {
         });
     }
 
+    // Periodic Merkle Tree Catch-up Sync
+    {
+        let catchup_state = app_state.clone();
+        tokio::spawn(async move {
+            // Wait 60s before first run to avoid clashing with startup full-pull
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+
+            let entity_types = [
+                "user", "order", "document", "file_resource", "attachment",
+                "item", "order_item_event", "product", "location", "shipment",
+            ];
+
+            loop {
+                interval.tick().await;
+                use sea_orm::EntityTrait;
+
+                let nodes = match crate::models::mesh_node::Entity::find()
+                    .all(&catchup_state.db)
+                    .await
+                {
+                    Ok(n) => n,
+                    Err(e) => {
+                        tracing::error!("Catch-up sync failed to fetch nodes: {}", e);
+                        continue;
+                    }
+                };
+
+                let my_id = &catchup_state.config.instance_id;
+
+                for node in nodes {
+                    if node.base_url.is_empty() || node.instance_id == *my_id {
+                        continue;
+                    }
+
+                    tracing::info!("Starting periodic catch-up sync with peer: {}", node.instance_id);
+
+                    for entity_type in &entity_types {
+                        if let Err(e) = catchup_state.sync_engine.sync_with_peer(&node.base_url, entity_type).await {
+                            tracing::debug!("Catch-up sync for '{}' with {} failed: {}", entity_type, node.instance_id, e);
+                        }
+                    }
+                }
+            }
+        });
+        info!("Periodic Merkle catch-up sync task started (5 min interval)");
+    }
+
     // Public API routes (no JWT — CAS files served via unguessable UUIDs)
     let public_api_routes = Router::new()
         .route("/files/:id", get(handlers::file::serve_file));
