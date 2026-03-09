@@ -1,42 +1,35 @@
-# Task Complete: Implement Twenty CRM Write-back API
+# Task Complete: Entity Checksums for Merkle Tree Sync (Stage A)
 
 ## Date: 2026-03-09
 
 ### Status
-✅ **COMPLETE — CRM entities can now be updated via `PUT /api/crm/:entity_type/:id`.**
+✅ **COMPLETE — Entity checksums are now recorded on every local mutation and incoming sync.**
 
 ---
 
 ## What Was Done
 
 ### Summary
-Extended `TwentyClient` with PATCH methods and created a new CRM handler to expose a generic write-back endpoint for the PDA client.
+Created `record_payload_checksums` in `src/utils/checksum.rs` and hooked it into all three sync paths: `push_to_all_peers`, `push_handler`, and `apply_pull_response`. Every entity that flows through the sync pipeline now has its SHA-256 checksum upserted into `entity_checksums`.
 
 ### Changes (4 files)
 
 | File | Change |
 |------|--------|
-| `src/services/twenty.rs` | Added `update_entity`, `update_company`, `update_person`, `update_opportunity` methods using PATCH |
-| `src/handlers/crm.rs` | **New** — `update_entity` handler: validates entity type, delegates to TwentyClient |
-| `src/handlers/mod.rs` | Added `pub mod crm` |
-| `src/main.rs` | Added route `/crm/:entity_type/:id` (PUT) to protected API routes |
+| `src/utils/checksum.rs` | Added `record_payload_checksums()` and `upsert_checksum()` — iterates all 10 entity arrays in PushPayload, computes hash via ChecksumCalculator, upserts into entity_checksums |
+| `src/handlers/mesh_sync.rs` | Hooked checksums into `push_to_all_peers` (before peer iteration) and `push_handler` (before consuming payload) |
+| `src/sync/engine.rs` | Hooked checksums into `apply_pull_response` (clones PullResponse into PushPayload before upserts) |
+| `src/models/checksum.rs` | Fixed `id` type from `i32` to `i64` to match DB schema (`bigint`) |
 
-### API
+### Design
 
-```
-PUT /api/crm/:entity_type/:id
-Authorization: Bearer <jwt>
-Content-Type: application/json
+- **Upsert strategy**: Select by `(entity_type, entity_id)` → update if hash changed, insert if new. Uses the existing `idx_entity_lookup` btree index.
+- **Checksum calculation**: Reuses `ChecksumCalculator::compute_checksum()` which strips timestamp fields and produces deterministic SHA-256 hashes.
+- **Non-blocking errors**: Checksum failures are logged as warnings but never block entity sync operations.
+- **All 10 entity types covered**: product, location, shipment, user, order, document, file_resource, attachment, item, order_item_event.
 
-Body: { ...fields to update... }
-```
-
-Supported entity types: `company`, `person`, `opportunity`.
-
-Returns the updated entity JSON from Twenty CRM, or appropriate error status codes:
-- `400` — unsupported entity type
-- `503` — Twenty CRM not configured
-- `500` — upstream error
+### Note on entity_checksums.id type
+The production DB uses `bigint` (auto-increment sequence). The Rust model previously had `i32` — fixed to `i64`. If UUID PKs are desired, that requires a DB migration (ALTER TABLE + drop sequence).
 
 ### Compilation
 - `cargo check` — ✅ clean (no new warnings or errors)
