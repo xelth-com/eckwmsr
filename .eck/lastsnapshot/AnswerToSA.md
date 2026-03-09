@@ -1,39 +1,42 @@
-# Task Complete: Integrate V2 SmartTag Decryption into Global Scanner
+# Task Complete: Implement Twenty CRM Write-back API
 
 ## Date: 2026-03-09
 
 ### Status
-✅ **COMPLETE — Encrypted QR codes are now transparently decrypted and routed through the existing scan pipeline.**
+✅ **COMPLETE — CRM entities can now be updated via `PUT /api/crm/:entity_type/:id`.**
 
 ---
 
 ## What Was Done
 
 ### Summary
-Modified `handle_scan` in `src/handlers/scan.rs` to intercept encrypted V2 SmartTag QR codes (e.g. `ECK1.COM/...`), decrypt them using `eck_binary_decrypt`, map the binary entity type to an internal routing prefix, and feed the result back into the existing resolution pipeline.
+Extended `TwentyClient` with PATCH methods and created a new CRM handler to expose a generic write-back endpoint for the PDA client.
 
-### Changes (1 file)
+### Changes (4 files)
 
 | File | Change |
 |------|--------|
-| `src/handlers/scan.rs` | Added SmartTag decryption interception block + entity type mapping |
+| `src/services/twenty.rs` | Added `update_entity`, `update_company`, `update_person`, `update_opportunity` methods using PATCH |
+| `src/handlers/crm.rs` | **New** — `update_entity` handler: validates entity type, delegates to TwentyClient |
+| `src/handlers/mod.rs` | Added `pub mod crm` |
+| `src/main.rs` | Added route `/crm/:entity_type/:id` (PUT) to protected API routes |
 
-### Details
+### API
 
-1. **Imports added**: `eck_binary_decrypt`, entity type constants (`ENTITY_WMS_ITEM`, `ENTITY_WMS_BOX`, `ENTITY_WMS_LOCATION`, `ENTITY_TWENTY_COMPANY`, `ENTITY_TWENTY_PERSON`, `ENTITY_TWENTY_OPPORTUNITY`), `warn` from tracing.
+```
+PUT /api/crm/:entity_type/:id
+Authorization: Bearer <jwt>
+Content-Type: application/json
 
-2. **Decryption interception** (before `try_twenty_lookup`): If the barcode starts with any configured `qr_prefixes` (e.g. `ECK1.COM/`), it calls `eck_binary_decrypt` with the app config's prefixes, tenant suffix, and `ENC_KEY` from env. On failure, returns an immediate error response.
+Body: { ...fields to update... }
+```
 
-3. **Entity type mapping**: On successful decryption, the `SmartTag.entity_type` byte is mapped to internal routing strings:
-   - `0x00` (WMS_ITEM) → `i-{uuid}`
-   - `0x01` (WMS_BOX) → `b-{uuid}`
-   - `0x02` (WMS_LOCATION) → `p-{uuid}`
-   - `0x10` (TWENTY_COMPANY) → `company-{uuid}`
-   - `0x11` (TWENTY_PERSON) → `person-{uuid}`
-   - `0x12` (TWENTY_OPPORTUNITY) → `opp-{uuid}`
-   - Fallback → `unknown-{uuid}`
+Supported entity types: `company`, `person`, `opportunity`.
 
-4. **Seamless routing**: By overwriting the `barcode` variable with the mapped string (e.g. `company-UUID`), the rest of `handle_scan` (Twenty CRM lookup, V2 UUID parser, legacy search) picks it up automatically — zero structural changes needed downstream.
+Returns the updated entity JSON from Twenty CRM, or appropriate error status codes:
+- `400` — unsupported entity type
+- `503` — Twenty CRM not configured
+- `500` — upstream error
 
 ### Compilation
 - `cargo check` — ✅ clean (no new warnings or errors)
