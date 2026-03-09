@@ -412,6 +412,9 @@ pub async fn push_handler(
     let db = &state.db;
     let mut applied = 0u32;
 
+    // Record checksums before consuming the payload
+    crate::utils::checksum::record_payload_checksums(db, &payload, &state.config.instance_id).await;
+
     for p in payload.products {
         let am = p.into_active_model();
         let _ = product::Entity::insert(am)
@@ -698,6 +701,10 @@ pub fn push_to_all_peers(state: Arc<AppState>, entity_type: &str, entity_id: &st
     let entity_id = entity_id.to_string();
     tokio::spawn(async move {
         let my_instance_id = state.config.instance_id.clone();
+
+        // Record checksums locally before pushing to peers
+        crate::utils::checksum::record_payload_checksums(&state.db, &payload, &my_instance_id).await;
+
         let nodes = mesh_node::Entity::find()
             .all(&state.db)
             .await

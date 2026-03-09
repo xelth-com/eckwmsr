@@ -581,6 +581,21 @@ impl SyncEngine {
         &self,
         resp: crate::handlers::mesh_sync::PullResponse,
     ) -> anyhow::Result<()> {
+        // Record checksums for all pulled entities
+        let checksum_payload = crate::handlers::mesh_sync::PushPayload {
+            products: resp.products.clone(),
+            locations: resp.locations.clone(),
+            shipments: resp.shipments.clone(),
+            users: resp.users.clone(),
+            orders: resp.orders.clone(),
+            documents: resp.documents.clone(),
+            file_resources: resp.file_resources.clone(),
+            attachments: resp.attachments.clone(),
+            items: resp.items.clone(),
+            order_item_events: resp.order_item_events.clone(),
+        };
+        crate::utils::checksum::record_payload_checksums(&self.db, &checksum_payload, &self.instance_id).await;
+
         for p in resp.products {
             self.upsert_product(p).await?;
         }

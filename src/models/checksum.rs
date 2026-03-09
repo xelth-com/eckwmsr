@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 #[sea_orm(table_name = "entity_checksums")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub id: i32,
+    pub id: i64,
     #[serde(rename = "entityType")]
     pub entity_type: String,
     #[serde(rename = "entityId")]
