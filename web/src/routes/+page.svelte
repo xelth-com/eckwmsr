@@ -9,9 +9,12 @@
 
 <div class="landing-page">
     <nav class="navbar">
-        <div class="logo">eckWMS <span class="badge">GO</span></div>
+        <div class="logo">
+            <span class="e-label">/E/</span>
+            eckWMS <span class="badge">RUST</span>
+        </div>
         <div class="nav-links">
-            <a href="https://github.com/xelth-com/eckwmsgo" target="_blank" rel="noreferrer" class="github-link">
+            <a href="https://github.com/xelth-com/eckwmsr" target="_blank" rel="noreferrer" class="github-link">
                 GitHub
             </a>
         </div>
@@ -23,7 +26,7 @@
 
             <p class="description">
                 Welcome to <strong>eckWMS</strong> — a modern open-source warehouse management system.
-                Built on microservices architecture using <strong>Go</strong> and <strong>SvelteKit</strong>.
+                Built with <strong>Rust</strong> and <strong>SvelteKit</strong> for blazing-fast performance.
             </p>
 
             <div class="cta-group">
@@ -38,7 +41,7 @@
                         Sign In
                     </a>
                 {/if}
-                <a href="https://github.com/xelth-com/eckwmsgo" target="_blank" rel="noreferrer" class="btn secondary">
+                <a href="https://github.com/xelth-com/eckwmsr" target="_blank" rel="noreferrer" class="btn secondary">
                     View Source
                 </a>
             </div>
@@ -47,7 +50,7 @@
         <div class="features-grid">
             <div class="feature-card">
                 <h3>🚀 High Performance</h3>
-                <p>Go backend delivers blazing-fast request processing with minimal resource consumption.</p>
+                <p>Rust backend delivers blazing-fast request processing with zero-cost abstractions and minimal memory usage.</p>
             </div>
             <div class="feature-card">
                 <h3>📱 Smart Codes</h3>
@@ -96,13 +99,26 @@
         letter-spacing: -0.5px;
     }
 
+    .e-label {
+        font-size: 1.1rem;
+        font-weight: 800;
+        font-family: monospace;
+        color: #e03c31;
+        text-shadow: 0 0 10px rgba(224, 60, 49, 0.7);
+        margin-right: 4px;
+        vertical-align: middle;
+    }
+
     .badge {
-        background: #4a69bd;
+        background: linear-gradient(135deg, #e03c31, #ff6b35);
         font-size: 0.7rem;
-        padding: 2px 6px;
+        padding: 2px 8px;
         border-radius: 4px;
         vertical-align: middle;
         margin-left: 5px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        box-shadow: 0 0 12px rgba(224, 60, 49, 0.4);
     }
 
     .github-link {
@@ -135,8 +151,8 @@
     }
 
     .accent {
-        color: #4a69bd;
-        -webkit-text-fill-color: #4a69bd;
+        color: #e03c31;
+        -webkit-text-fill-color: #e03c31;
     }
 
     .description {

@@ -78,6 +78,7 @@ pub async fn start_embedded() -> Result<(postgresql_embedded::PostgreSQL, String
     settings.port = 5433;
     settings.username = "postgres".to_string();
     settings.password = "postgres".to_string();
+    settings.timeout = Some(std::time::Duration::from_secs(30));
 
     let mut pg = postgresql_embedded::PostgreSQL::new(settings);
 

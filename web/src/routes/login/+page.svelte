@@ -54,7 +54,18 @@
     }
 </script>
 
-<div class="login-container">
+<div class="login-page">
+    <nav class="top-bar">
+        <div class="top-bar-left">
+            <span class="e-label">/E/</span>
+            <span class="top-bar-brand">eckWMS</span>
+        </div>
+        <a class="github-link" href="https://github.com/niceguydave/eckwms" target="_blank" rel="noopener">
+            <svg viewBox="0 0 16 16" fill="currentColor" width="20" height="20"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        </a>
+    </nav>
+
+    <div class="login-container">
     <div class="login-card">
         <div class="logo">
             <h1>eckWMS</h1>
@@ -116,10 +127,57 @@
         </form>
     </div>
 </div>
+</div>
 
 <style>
-    .login-container {
+    .login-page {
         height: 100vh;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .top-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.6rem 1.2rem;
+        background: #1a1a1a;
+        border-bottom: 1px solid #333;
+    }
+
+    .top-bar-left {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .e-label {
+        font-size: 1.1rem;
+        font-weight: 800;
+        font-family: monospace;
+        color: #e03c31;
+        text-shadow: 0 0 10px rgba(224, 60, 49, 0.7);
+    }
+
+    .top-bar-brand {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #e0e0e0;
+        letter-spacing: -0.5px;
+    }
+
+    .github-link {
+        color: #888;
+        transition: color 0.2s;
+        display: flex;
+        align-items: center;
+    }
+
+    .github-link:hover {
+        color: #fff;
+    }
+    .login-container {
+        flex: 1;
         display: flex;
         align-items: center;
         justify-content: center;
